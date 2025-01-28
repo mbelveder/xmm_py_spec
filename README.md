@@ -2,6 +2,7 @@
 
 A Python package to handle XMM-Newton spectra
 
+```bash
 xmm_py_spec/
 ├── src/
 │   ├── xmm_py_spec/
@@ -14,3 +15,4 @@ xmm_py_spec/
 │   └── test_xmm_py_spec.py
 ├── pyproject.toml
 └── README.md
+```
