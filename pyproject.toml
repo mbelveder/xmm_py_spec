@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "xmm-py-spec"
+version = "0.1.0"
+description = "A package to handle XMM-Newton spectra using Python"
+authors = ["Miсhael Belvedersky <mike.belveder@gmail.com>"]
+readme = "README.md"
+packages = [{include = "xmm_py_spec", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^2.2.2"
+requests = "^2.32.3"
+
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.1.1"
+pytest = "^8.3.4"
+pytest-cov = "^6.0.0"
+coverage = "^7.6.10"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

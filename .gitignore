@@ -1,0 +1,29 @@
+# Virtual environment
+.venv/
+
+# Data
+data/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Poetry files
+poetry.lock
+.pytest_cache/
+
+# OS files
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Dist
+dist/
+
+# Other
+*.log
+xmm_combinespectra.py
+src/xmm_py_spec/download_reference.py
+src/xmm_py_spec/download.py
