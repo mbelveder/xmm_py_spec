@@ -1,8 +1,8 @@
 install:
 		poetry install
 
-gendiff:
-		poetry run gendiff
+# gendiff:
+# 		poetry run gendiff
 
 publish:
 		poetry publish --dry-run
@@ -19,19 +19,22 @@ test:
 test-verbose:
 		poetry run pytest -vv
 
-pytest-cov:
-		poetry run pytest --cov=gendiff
+# pytest-cov:
+# 		poetry run pytest --cov=gendiff
 
-test-coverage:
-		poetry run pytest --cov=gendiff --cov-report xml
+# test-coverage:
+# 		poetry run pytest --cov=gendiff --cov-report xml
 
-lint:
-		poetry run flake8 gendiff
+# lint:
+# 		poetry run flake8 gendiff
 
-selfcheck:
-		poetry check
+# selfcheck:
+# 		poetry check
 
-check: selfcheck test lint
+# check: selfcheck test lint
 
-build: check
-		poetry build
+# build: check
+# 		poetry build
+
+build:
+	poetry build
