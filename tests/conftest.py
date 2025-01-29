@@ -3,8 +3,8 @@ import pytest
 
 @pytest.fixture
 def valid_csv_content():
-    return ("obs_id,src_num\n"
-            "147510801,9")
+    return ("srcid,obs_id,src_num\n"
+            "201237001010017,147510801,9")
 
 
 @pytest.fixture

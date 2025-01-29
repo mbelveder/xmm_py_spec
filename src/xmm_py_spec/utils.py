@@ -16,7 +16,7 @@ def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
         FileNotFoundError: If file doesn't exist
         ValueError: If required columns are missing
     """
-    required_cols = {'obs_id', 'src_num'}
+    required_cols = {'obs_id', 'src_num', 'srcid'}
 
     with open(filepath, 'r') as f:
         reader = csv.DictReader(f)
