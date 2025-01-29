@@ -10,7 +10,7 @@ def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
         filepath: Path to CSV file
 
     Returns:
-        List of dictionaries containing XMM source data
+        List of dictionaries containing XMM source identificators
 
     Raises:
         FileNotFoundError: If file doesn't exist
