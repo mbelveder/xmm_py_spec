@@ -21,3 +21,6 @@ coverage = "^7.6.10"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+download = "xmm_py_spec.download:main"
