@@ -2,12 +2,14 @@ import pytest
 from pathlib import Path
 from xmm_py_spec.utils import load_source_list
 import requests
+from astropy.io import fits
 from xmm_py_spec.download_spectra import (
     make_url,
     files_exist,
     download_spectra,
     process_tar_file,
-    download_file
+    download_file,
+    read_fits_header_field
 )
 
 
@@ -108,3 +110,31 @@ def test_download_file_network_error(tmp_path, mocker):
         base_dir=str(tmp_path)
     )
     assert result is False
+
+
+def test_read_fits_header_field(tmp_path):
+    # Create test FITS file
+    test_file = tmp_path / "test.fits"
+    # Primary HDU
+    primary_hdu = fits.PrimaryHDU()
+    primary_hdu.header['TELESCOP'] = 'XMM'
+
+    # Extension HDU
+    ext_hdu = fits.ImageHDU()
+    ext_hdu.header['RESPFILE'] = 'epn_e1_ff20_sdY8.rmf'
+
+    # Create HDUList and write to file
+    hdul = fits.HDUList([primary_hdu, ext_hdu])
+    hdul.writeto(test_file)
+
+    # Test reading existing field
+    assert read_fits_header_field(
+        test_file, 'RESPFILE') == 'epn_e1_ff20_sdY8.rmf'
+
+    # Test reading non-existent field
+    with pytest.raises(KeyError):
+        read_fits_header_field(test_file, 'NONEXISTENT')
+
+    # Test reading from non-existent file
+    with pytest.raises(FileNotFoundError):
+        read_fits_header_field(tmp_path / "nonexistent.fits", 'RESPFILE')
