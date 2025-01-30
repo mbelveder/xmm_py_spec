@@ -30,5 +30,4 @@ htmlcov/
 *.log
 xmm_combinespectra.py
 src/xmm_py_spec/download_reference.py
-src/xmm_py_spec/download.py
 notebooks/
