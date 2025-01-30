@@ -23,7 +23,7 @@ jobs:
           poetry config virtualenvs.create false
           make install
       - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=src" >> $GITHUB_ENV
+        run: echo "PYTHONPATH=$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
       - name: Debug PYTHONPATH
         run: echo $PYTHONPATH
       - name: List files
