@@ -1,6 +1,9 @@
+
 # TODO: add overall progress bar
 # TODO: don't try to untar if the download failed
 # TODO: create a report after all downloads are finished
+# TODO: explore ODF downloading options
+# TODO: rerid all docs before publishing
 
 """
 XMM-Newton Science Archive Data Download Module
@@ -13,7 +16,7 @@ Science Archive (XSA). It handles the following tasks:
 - Organization of downloaded files into a structured directory hierarchy
 
 Usage:
-    from xmm_py_spec.download import download_spectra
+    from xmm_py_spec.download_spectra import download_spectra
 
     obs_table = [
         {'srcid': '123', 'obs_id': '456', 'src_num': '7'}
@@ -29,6 +32,7 @@ import requests
 from tqdm import tqdm
 from pathlib import Path
 from typing import Dict, List
+from astropy.io import fits
 from .utils import load_source_list
 
 BASE_URL = "https://nxsa.esac.esa.int/nxsa-sl/servlet/data-action-aio"
@@ -236,6 +240,14 @@ def parse_args():
         )
     )
     return parser.parse_args()
+
+
+def read_fits_header_field(filepath, field_name):
+    with fits.open(filepath) as hdul:
+        # Get header info
+        header = hdul[1].header
+
+    return header[field_name]
 
 
 def main():
