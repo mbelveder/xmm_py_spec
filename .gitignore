@@ -22,6 +22,10 @@ poetry.lock
 # Dist
 dist/
 
+# html coverage
+.coverage
+htmlcov/
+
 # Other
 *.log
 xmm_combinespectra.py
