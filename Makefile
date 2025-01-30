@@ -20,10 +20,13 @@ test-verbose:
 		poetry run pytest -vv
 
 pytest-cov:
-		poetry run pytest --cov=download
+		poetry run pytest --cov=src/xmm_py_spec
 
 test-coverage:
-		poetry run pytest --cov=download --cov-report xml
+		poetry run pytest --cov=src/xmm_py_spec --cov-report xml
+
+test-missed:
+		poetry run pytest --cov=src/xmm_py_spec --cov-report term-missing --cov-report html
 
 lint:
 		poetry run flake8 src/xmm_py_spec
