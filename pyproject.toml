@@ -11,6 +11,7 @@ python = "^3.11"
 numpy = "^2.2.2"
 requests = "^2.32.3"
 tqdm = "^4.67.1"
+astropy = "^7.0.0"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -25,4 +26,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-download = "xmm_py_spec.download:main"
+download_spectra = "xmm_py_spec.download_spectra:main"
