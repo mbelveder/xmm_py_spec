@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from xmm_py_spec.utils import load_source_list
 import requests
-from xmm_py_spec.download import (
+from xmm_py_spec.download_spectra import (
     make_url,
     files_exist,
     download_spectra,
@@ -66,6 +66,7 @@ def test_download_spectra_missing_fields():
         download_spectra(bad_table)
 
 
+# Tests extraction and verification of files from tar archive
 def test_process_tar_file(tmp_path, sample_tar_bytes):
     tar_path = tmp_path / "test.tar"
     tar_path.write_bytes(sample_tar_bytes)
@@ -77,11 +78,13 @@ def test_process_tar_file(tmp_path, sample_tar_bytes):
     assert (dest_dir / "test.FTZ").exists()
 
 
+# Tests error handling when tar file does not exist
 def test_process_tar_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         process_tar_file("/nonexistent.tar", tmp_path)
 
 
+# Tests successful file download with mocked HTTP request
 def test_download_file_success(tmp_path, mock_requests_get):
     result = download_file(
         url="http://test.com",
@@ -94,6 +97,7 @@ def test_download_file_success(tmp_path, mock_requests_get):
     assert mock_requests_get.called
 
 
+# Tests handling of network errors during file download
 def test_download_file_network_error(tmp_path, mocker):
     mocker.patch('requests.get', side_effect=requests.RequestException)
     result = download_file(
