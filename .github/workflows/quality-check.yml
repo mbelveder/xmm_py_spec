@@ -24,6 +24,10 @@ jobs:
           make install
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=src" >> $GITHUB_ENV
+      - name: Debug PYTHONPATH
+        run: echo $PYTHONPATH
+      - name: List files
+        run: ls -R
       - name: Run linter and pytest
         run: |
           make check
