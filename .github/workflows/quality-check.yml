@@ -20,14 +20,14 @@ jobs:
       - name: Install dependencies
         run: |
           pip install poetry
-          poetry config virtualenvs.create false
           make install
-      - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
-      - name: Debug PYTHONPATH
-        run: echo $PYTHONPATH
-      - name: List files
-        run: ls -R
+      # poetry config virtualenvs.create false
+      # - name: Set PYTHONPATH
+      #   run: echo "PYTHONPATH=$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
+      # - name: Debug PYTHONPATH
+      #   run: echo $PYTHONPATH
+      # - name: List files
+      #   run: ls -R
       - name: Run linter and pytest
         run: |
           make check
