@@ -48,7 +48,6 @@ from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List
-from astropy.io import fits
 from .utils import load_source_list
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -221,7 +220,9 @@ def extract_and_organize(
 def prepare_download(
         srcid: str, obs_id: str, src_num: str, base_dir: str
 ) -> tuple[Path, bool]:
-    """Prepare download by checking existing files and creating output directory."""
+    """
+    Prepare download by checking existing files and creating output directory.
+    """
     output_dir = Path(base_dir) / str(srcid) / f"{obs_id}_{src_num}"
     exists = output_dir.exists() and files_exist(output_dir)
     return output_dir, exists
@@ -432,7 +433,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 # def read_fits_header_field(filepath, field_name):
 #     with fits.open(filepath) as hdul:
