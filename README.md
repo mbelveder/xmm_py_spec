@@ -11,7 +11,6 @@ xmm_py_spec/
 │   ├── xmm_py_spec/
 │   │   ├── __init__.py
 │   │   ├── download_spectra.py     # Download functions
-│   │   ├── combine.py      # Combine spectra
 │   │   └── utils.py        # Common utilities
 ├── tests/
 │   ├── __init__.py
