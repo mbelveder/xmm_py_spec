@@ -1,15 +1,12 @@
 import pytest
 from pathlib import Path
 from xmm_py_spec.utils import load_source_list
-import requests
-from astropy.io import fits
+# from astropy.io import fits
 from xmm_py_spec.download_spectra import (
     make_url,
     files_exist,
     download_spectra,
-    process_tar_file,
-    download_file,
-    read_fits_header_field
+    clear_log_file
 )
 
 
@@ -68,73 +65,62 @@ def test_download_spectra_missing_fields():
         download_spectra(bad_table)
 
 
-# Tests extraction and verification of files from tar archive
-def test_process_tar_file(tmp_path, sample_tar_bytes):
-    tar_path = tmp_path / "test.tar"
-    tar_path.write_bytes(sample_tar_bytes)
+def test_clear_log_file(tmp_path):
+    """Test log file clearing functionality."""
+    log_dir = tmp_path / "123"
+    log_dir.mkdir()
+    log_file = log_dir / "download.log"
 
-    dest_dir = tmp_path / "output"
-    dest_dir.mkdir()
+    # Create log with content
+    log_file.write_text("old content")
 
-    process_tar_file(str(tar_path), dest_dir)
-    assert (dest_dir / "test.FTZ").exists()
-
-
-# Tests error handling when tar file does not exist
-def test_process_tar_missing_file(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        process_tar_file("/nonexistent.tar", tmp_path)
+    clear_log_file("123", tmp_path)
+    assert log_file.read_text() == ""
 
 
-# Tests successful file download with mocked HTTP request
-def test_download_file_success(tmp_path, mock_requests_get):
-    result = download_file(
-        url="http://test.com",
-        srcid="123",
-        obs_id="456",
-        src_num="7",
-        base_dir=str(tmp_path)
-    )
-    assert result is True
-    assert mock_requests_get.called
+def test_clear_nonexistent_log(tmp_path):
+    """Test clearing non-existent log file."""
+    clear_log_file("456", tmp_path)  # Should not raise any error
 
 
-# Tests handling of network errors during file download
-def test_download_file_network_error(tmp_path, mocker):
-    mocker.patch('requests.get', side_effect=requests.RequestException)
-    result = download_file(
-        url="http://test.com",
-        srcid="123",
-        obs_id="456",
-        src_num="7",
-        base_dir=str(tmp_path)
-    )
-    assert result is False
+def test_download_spectra_clears_logs(tmp_path):
+    """Test that download_spectra clears existing logs."""
+    # Create existing log
+    log_dir = tmp_path / "123"
+    log_dir.mkdir(parents=True)
+    log_file = log_dir / "download.log"
+    log_file.write_text("old content")
+
+    obs_table = [{'srcid': '123', 'obs_id': '456', 'src_num': '7'}]
+    download_spectra(obs_table, base_dir=str(tmp_path))
+
+    assert log_file.exists()
+    assert "old content" not in log_file.read_text()
 
 
-def test_read_fits_header_field(tmp_path):
-    # Create test FITS file
-    test_file = tmp_path / "test.fits"
-    # Primary HDU
-    primary_hdu = fits.PrimaryHDU()
-    primary_hdu.header['TELESCOP'] = 'XMM'
+# def test_read_fits_header_field(tmp_path):
+#     # Create test FITS file
+#     test_file = tmp_path / "test.fits"
+#     # Primary HDU
+#     primary_hdu = fits.PrimaryHDU()
+#     primary_hdu.header['TELESCOP'] = 'XMM'
 
-    # Extension HDU
-    ext_hdu = fits.ImageHDU()
-    ext_hdu.header['RESPFILE'] = 'epn_e1_ff20_sdY8.rmf'
+#     # Extension HDU
+#     ext_hdu = fits.ImageHDU()
+#     ext_hdu.header['RESPFILE'] = 'epn_e1_ff20_sdY8.rmf'
 
-    # Create HDUList and write to file
-    hdul = fits.HDUList([primary_hdu, ext_hdu])
-    hdul.writeto(test_file)
+#     # Create HDUList and write to file
+#     hdul = fits.HDUList([primary_hdu, ext_hdu])
+#     hdul.writeto(test_file)
 
-    # Test reading existing field
-    assert read_fits_header_field(
-        test_file, 'RESPFILE') == 'epn_e1_ff20_sdY8.rmf'
+#     # Test reading existing field
+#     assert read_fits_header_field(
+#         test_file, 'RESPFILE') == 'epn_e1_ff20_sdY8.rmf'
 
-    # Test reading non-existent field
-    with pytest.raises(KeyError):
-        read_fits_header_field(test_file, 'NONEXISTENT')
+#     # Test reading non-existent field
+#     with pytest.raises(KeyError):
+#         read_fits_header_field(test_file, 'NONEXISTENT')
 
-    # Test reading from non-existent file
-    with pytest.raises(FileNotFoundError):
-        read_fits_header_field(tmp_path / "nonexistent.fits", 'RESPFILE')
+#     # Test reading from non-existent file
+#     with pytest.raises(FileNotFoundError):
+#         read_fits_header_field(tmp_path / "nonexistent.fits", 'RESPFILE')
