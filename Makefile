@@ -4,6 +4,9 @@ install:
 download_spectra:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/xmm_source.csv
 
+run_astroquery:
+		poetry run python -m xmm_py_spec.run_astroquery data/spectra_to_download/xmm_source.csv
+
 publish:
 		poetry publish --dry-run
 
