@@ -2,7 +2,10 @@ install:
 		poetry install
 
 download_spectra:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/xmm_source.csv
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_sources_lh.csv
+
+combine_spectra:
+		poetry run python -m xmm_py_spec.combine_spectra
 
 publish:
 		poetry publish --dry-run
