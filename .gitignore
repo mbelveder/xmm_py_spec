@@ -29,3 +29,4 @@ htmlcov/
 # Other
 *.log
 notebooks/
+sas_docker_setup.md
