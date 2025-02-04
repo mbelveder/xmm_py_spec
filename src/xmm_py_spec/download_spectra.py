@@ -18,6 +18,7 @@ from urllib.error import URLError
 from http.client import RemoteDisconnected
 from requests.exceptions import ConnectionError
 import random
+import tarfile
 
 LEVEL = "PPS"
 INSTNAME = "PN"
@@ -165,6 +166,14 @@ def is_directory_empty(path: Path) -> bool:
     return not any(path.iterdir())
 
 
+def extract_all_files(tar_file: Path, output_dir: Path) -> None:
+    """Extract all files from tarfile to output directory."""
+    with tarfile.open(tar_file, 'r') as tar:
+        for member in tar.getmembers():
+            if any(member.name.endswith(ext) for ext in ['.FTZ', '.PNG', '.PDF']):
+                tar.extract(member, output_dir)
+
+
 def download_observation(
     srcid: str, obs_id: str, src_num: int, base_dir: str, obs_data: Dict = None
 ) -> bool:
@@ -179,9 +188,7 @@ def download_observation(
             log_download_status(
                 srcid, obs_id, src_num, base_dir, "SKIPPED_EXISTS", obs_data
             )
-            print(
-                f"Skipping {obs_id}_{src_num} - directory exists with files\n"
-            )
+            print(f"Skipping {obs_id}_{src_num} - directory exists with files\n")
             return True
         else:
             log_download_status(
@@ -193,11 +200,15 @@ def download_observation(
         tar_file = download_xmm_data(obs_id, src_num)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # First extract spectral files using XMMNewton utility
         XMMNewton.get_epic_spectra(
             tar_file, source_number=src_num, verbose=False, path=output_dir
         )
         print('\n')
 
+        # Then extract remaining files
+        extract_all_files(tar_file, output_dir)
+        
         reorganize_extracted_files(output_dir, obs_id)
 
         tar_file.unlink(missing_ok=True)
