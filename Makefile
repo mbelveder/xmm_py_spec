@@ -10,6 +10,9 @@ combine_spectra:
 combine_spectra_group:
 		poetry run python -m xmm_py_spec.combine_spectra --group
 
+analyze_spectra:
+		poetry run python -m xmm_py_spec.analyze_spectra
+
 publish:
 		poetry publish --dry-run
 
