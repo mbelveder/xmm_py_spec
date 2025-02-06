@@ -98,16 +98,3 @@ def sample_tar_bytes():
         info.size = len(content.getvalue())
         tar.addfile(info, content)
     return tar_buffer.getvalue()
-
-@pytest.fixture
-def mock_response(mocker, sample_tar_bytes):
-    """Mock successful HTTP response"""
-    mock = mocker.Mock()
-    mock.headers = {'content-length': str(len(sample_tar_bytes))}
-    mock.iter_content.return_value = [sample_tar_bytes]
-    return mock
-
-@pytest.fixture
-def mock_requests_get(mocker, mock_response):
-    """Mock requests.get"""
-    return mocker.patch('requests.get', return_value=mock_response)
