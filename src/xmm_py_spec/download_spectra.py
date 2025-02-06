@@ -170,16 +170,17 @@ def is_directory_empty(path: Path) -> bool:
 
 def extract_all_files(tar_file: Path, output_dir: Path) -> None:
     """Extract all files from tarfile to output directory."""
+    extentions = ['.FTZ', '.PNG', '.PDF']
     with tarfile.open(tar_file, 'r') as tar:
         for member in tar.getmembers():
-            if any(member.name.endswith(ext) for ext in ['.FTZ', '.PNG', '.PDF']):
+            if any(member.name.endswith(ext) for ext in extentions):
                 tar.extract(member, output_dir)
 
 
 def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
     """Update the meta log file with observation status."""
     meta_log_path = Path(base_dir) / "download_meta.csv"
-    
+
     # Prepare log entry
     log_entry = {
         'srcid': obs_data['srcid'],
@@ -190,22 +191,26 @@ def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
         'timestamp': datetime.now().isoformat(),
         'details': json.dumps(obs_data)  # Store full observation data
     }
-    
+
     try:
         # Load existing log or create new
         if meta_log_path.exists():
             df = pd.read_csv(meta_log_path)
             # Update existing entry or append new one
             mask = (df['srcid'] == obs_data['srcid']) & \
-                  (df['obs_id'] == obs_data['obs_id']) & \
-                  (df['src_num'] == obs_data['src_num'])
+                   (df['obs_id'] == obs_data['obs_id']) & \
+                   (df['src_num'] == obs_data['src_num'])
             if mask.any():
-                df.loc[mask, ['status', 'timestamp']] = [status, log_entry['timestamp']]
+                df.loc[mask, ['status', 'timestamp']] = [
+                    status, log_entry['timestamp']
+                ]
             else:
-                df = pd.concat([df, pd.DataFrame([log_entry])], ignore_index=True)
+                df = pd.concat(
+                    [df, pd.DataFrame([log_entry])], ignore_index=True
+                )
         else:
             df = pd.DataFrame([log_entry])
-        
+
         # Save updated log
         df.to_csv(meta_log_path, index=False)
     except Exception as e:
@@ -216,7 +221,11 @@ def download_observation(
     srcid: str, obs_id: str, src_num: int, base_dir: str, obs_data: Dict = None
 ) -> bool:
     """Download and organize data for a single XMM-Newton observation."""
-    obs_data = obs_data or {'srcid': srcid, 'obs_id': obs_id, 'src_num': src_num}
+
+    obs_data = obs_data or {
+        'srcid': srcid, 'obs_id': obs_id, 'src_num': src_num
+    }
+
     output_dir, obs_id = prepare_download(
         srcid, obs_id, src_num, base_dir, obs_data
     )
@@ -228,7 +237,9 @@ def download_observation(
             log_download_status(
                 srcid, obs_id, src_num, base_dir, "SKIPPED_EXISTS", obs_data
             )
-            print(f"Skipping {obs_id}_{src_num} - directory exists with files\n")
+            print(
+                f"Skipping {obs_id}_{src_num} - directory exists with files\n"
+            )
             return True
         else:
             log_download_status(
@@ -248,7 +259,7 @@ def download_observation(
 
         # Then extract remaining files
         extract_all_files(tar_file, output_dir)
-        
+
         reorganize_extracted_files(output_dir, obs_id)
 
         tar_file.unlink(missing_ok=True)
@@ -295,15 +306,15 @@ def download_spectra(
 ) -> None:
     """Download spectral data for multiple XMM-Newton observations."""
     validate_obs_table(obs_table)
-    
+
     # Create base directory if it doesn't exist
     Path(base_dir).mkdir(parents=True, exist_ok=True)
-    
+
     # Initialize meta log if needed
     meta_log_path = Path(base_dir) / "download_meta.csv"
     if not meta_log_path.exists():
         pd.DataFrame(columns=[
-            'srcid', 'obs_id', 'src_num', 'user_srcid', 
+            'srcid', 'obs_id', 'src_num', 'user_srcid',
             'status', 'timestamp', 'details'
         ]).to_csv(meta_log_path, index=False)
 

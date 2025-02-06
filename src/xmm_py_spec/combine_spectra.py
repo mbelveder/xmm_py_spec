@@ -9,7 +9,9 @@ import argparse
 def validate_combine_args(args: List[str]) -> bool:
     """Validate that essential arguments are present and properly formatted."""
     required_params = ['pha=', 'bkg=', 'rmf=', 'arf=']
-    return all(any(arg.startswith(param) for arg in args) for param in required_params)
+    return all(
+        any(arg.startswith(param) for arg in args) for param in required_params
+    )
 
 
 def run_spcombine(args: List[str]) -> bool:
@@ -43,7 +45,9 @@ def run_ftgrouppha(source_dir: Path) -> bool:
     try:
         spec_file = convert_to_docker_path(source_dir / 'combined_spectrum.ds')
         bkg_file = convert_to_docker_path(source_dir / 'combined_background.ds')
-        out_file = convert_to_docker_path(source_dir / 'combined_spectrum_groupped.pha')
+        out_file = convert_to_docker_path(
+            source_dir / 'combined_spectrum_groupped.pha'
+        )
 
         cmd = [
             "docker", "exec", "-it", "xmm_py_spec_container",
@@ -177,7 +181,9 @@ def find_spectral_files(src_dir: Path) -> List[Dict[str, List[Path]]]:
     return spec_files
 
 
-def combine_spectra(base_dir: str = "data/downloaded_spectra", group: bool = False) -> None:
+def combine_spectra(
+        base_dir: str = "data/downloaded_spectra", group: bool = False
+) -> None:
     """Combine spectra for each source and optionally group them."""
     base_path = Path(base_dir)
     if not base_path.exists():

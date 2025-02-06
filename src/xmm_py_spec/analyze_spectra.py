@@ -2,7 +2,6 @@ from pathlib import Path
 import logging
 from typing import List
 import xspec
-from xspec import AllData
 from astropy.io import fits
 
 
@@ -14,7 +13,9 @@ def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
                 if key in hdu.header:
                     old_path = hdu.header[key]
                     if old_path.startswith('/app/data/'):
-                        new_path = str(spectrum_file.parent / Path(old_path).name)
+                        new_path = str(
+                            spectrum_file.parent / Path(old_path).name
+                        )
                         hdu.header[key] = new_path
         hdul.flush()
 
@@ -30,10 +31,10 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
             logging.info(f"Removing existing session file: {session_path}")
             session_path.unlink()
 
-        # Clear any existing data and load single spectrum
-        AllData.clear()
+        # Load single spectrum
+        print(str(spectrum_path))
         s = xspec.Spectrum(str(spectrum_path))
-        logging.info(f"Loaded spectrum: {spectrum_path.name}")
+        logging.info(f"Spectrum loaded: {s.fileName}")
 
         # Setup basic parameters
         s.ignore("bad")
@@ -42,33 +43,18 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
         xspec.Fit.statMethod = "cstat"
 
         # Load model
-        model_str = 'phabs*po'
-        powerlaw_model = xspec.Model(model_str)
-        powerlaw_model.phabs.nH.frozen = True
-        powerlaw_model.phabs.nH.values = 7e-3
-        # powerlaw_model.powerlaw.PhoIndex.values = [
-        #     1.0, 0.05, -10.0, -10.0, 10.0, 10.0
-        #     ]
-
-        print(powerlaw_model.show())
-
-        xspec.Fit.query = "yes"
-        try:
-            xspec.Fit.perform()
-        except Exception:
-            return None
+        model = xspec.Model("powerlaw")
         logging.info("Loaded powerlaw model")
+        logging.info(f"Initial parameters: {model}")
+
+        # Log spectrum details
+        logging.info(f"Energy range: {s.energies[0]}-{s.energies[-1]} keV")
+        logging.info(f"Background: {s.background}")
+        logging.info(f"Response: {s.response.rmf}")
 
         # Save session
         xspec.Xset.save(str(session_path), info='a')
         logging.info(f"Session saved to: {session_path}")
-
-        # Append plotting commands to the session file
-        with open(session_path, 'a') as f:
-            f.write(
-                '\ncpd /xw\nsetpl en\nsetpl r 10 10\nfit\npl eeufs\nshow all'
-            )
-
         return True
 
     except Exception as e:
@@ -83,17 +69,17 @@ def find_grouped_spectra(
     base_path = Path(base_dir)
     spectra = []
 
+    # Process each source directory
     for src_dir in base_path.iterdir():
         if not src_dir.is_dir():
             continue
 
-        # Look for the specific combined grouped spectrum
+        # Look for combined spectrum in source directory
         spectrum = src_dir / "combined_spectrum_groupped.pha"
         if spectrum.exists():
             spectra.append(spectrum)
-            logging.info(f"Found grouped spectrum in {src_dir.name}")
         else:
-            logging.warning(f"No grouped spectrum found in {src_dir.name}")
+            logging.warning(f"No grouped spectrum found in {src_dir}")
 
     return spectra
 
