@@ -13,6 +13,9 @@ combine_spectra_group:
 analyze_spectra:
 		poetry run python -m xmm_py_spec.analyze_spectra
 
+fit_observation:
+		poetry run python -m xmm_py_spec.fit_observation
+
 publish:
 		poetry publish --dry-run
 
