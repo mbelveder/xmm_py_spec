@@ -6,6 +6,7 @@ import traceback
 from xspec import Xset, Fit, AllData, AllModels, Model, Plot
 from typing import Callable, Tuple
 import logging
+from pathlib import Path
 
 
 def extract_xspec_values(
@@ -192,7 +193,7 @@ def extract_errors_from_2d_contour(
 
 def mo2_fit_xmm(
         specname: str, rshift: float, en_lower: float, en_upper: float,
-        model_str: str, title: str, plot_path: str, date_obs, obs_id,
+        model_str: str, title: str, plot_path: Path, date_obs, obs_id,
         phoind_fixed=False
         ) -> pd.Series:
     """
@@ -274,7 +275,7 @@ def mo2_fit_xmm(
     # Perform a 2D parameter scan and extract the fit results
     try:
         logging.info("Starting 2D parameter scan")
-        Fit.steppar('log 2 1e-1 3 50 nolog 4 -1 3 50')
+        Fit.steppar('log 2 1e-1 10 100 nolog 4 -1 3 100')
         logging.info("Steppar completed successfully")
 
         # Perform a contour plot of the 2D parameter scan
@@ -349,26 +350,21 @@ def mo2_fit_xmm(
             return None
 
         # fig = plt.figure(figsize=(6, 8))
-        fig, ax3 = plt.subplots(figsize=(3, 3))
+        fig, ax3 = plt.subplots(figsize=(6, 6))
 
-        if specname == 'grouped_min_src_1430_020_SourceSpec_00001.fits.gz':
-            colors = 'k'
-            ls = '--'
-            marker='x'
-            s = 30
-        else:
-            colors = 'red'
-            ls = '-'
-            marker='o'
-            s = 2
+        colors = 'red'
+        ls = '-'
 
-            # Filled contour
-            ax3.contourf(
-                step2d_x, step2d_y, step2d_z,
-                np.append(levelvals - 2.71, levelvals),
-                colors=colors, alpha=.05
-            )
-            # Empty contour
+        marker='o'
+        s = 2
+
+        # Filled contour
+        ax3.contourf(
+            step2d_x, step2d_y, step2d_z,
+            np.append(levelvals - 2.71, levelvals),
+            colors=colors, alpha=.05
+        )
+        # Empty contour
 
         ax3.contour(
             step2d_x, step2d_y, step2d_z,
@@ -385,16 +381,23 @@ def mo2_fit_xmm(
         ax3.set_xlabel(r'$N_{\rm H}\ (10^{22})$')
         ax3.set_ylabel('Г')
         ax3.set_xscale('log')
-        ax3.set_xlim(0.1, 3)
-        ax3.set_ylim(0.5, 2.5)
+        ax3.set_xlim(0.1, 10)
+        ax3.set_ylim(0.3, 2.5)
 
-        fig.suptitle(title, fontsize=10, y=.93)
+        fig.suptitle(title, fontsize=12, y=.95)
 
+        # Plot saving section
         if plot_path:
-            plot_file = f'{plot_path}/{specname}_2.png'
-            logging.info(f"Saving plot to: {plot_file}")
+            try:
+                # Ensure parent directory exists
+                plot_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logging.info("Fit completed successfully")
+                # Save plot directly to the provided path
+                fig.savefig(plot_path, bbox_inches='tight', dpi=200)
+                logging.info(f"Saving plot to: {plot_path}")
+            except Exception as e:
+                logging.error(f"Failed to save plot: {e}")
+
         return fit_result
 
     except Exception as e:
