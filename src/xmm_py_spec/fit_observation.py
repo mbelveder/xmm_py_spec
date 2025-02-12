@@ -3,6 +3,7 @@ from pathlib import Path
 import logging
 from .analyze_spectral_variability import analyze_source
 from .source import Source
+from .plotting_settings import set_mpl
 
 
 def setup_logging(output_path: Path):
@@ -12,21 +13,20 @@ def setup_logging(output_path: Path):
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "fitting.log"
 
+    # Clear the log file by opening it in write mode
+    log_file.write_text('')
+
     # Configure root logger
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-
-    # Clear any existing handlers
     logger.handlers.clear()
 
-    # File handler
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(
         logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     )
     logger.addHandler(file_handler)
 
-    # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(
         logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -36,14 +36,16 @@ def setup_logging(output_path: Path):
 
 def main():
     """Main entry point for fitting observations."""
-    base_path = Path("data/downloaded_spectra")
-    output_path = Path("data/")
-    
-    # Set up logging first
-    setup_logging(output_path)
+    # Convert paths to absolute at the start
+    base_path = Path("data/downloaded_spectra").resolve()
+    output_path = Path("data").resolve()
 
-    logging.info(f"Base path: {base_path}")
-    logging.info(f"Output path: {output_path}")
+    # Ensure base output directory exists
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Set up logging and plotting
+    setup_logging(output_path)
+    set_mpl()
 
     try:
         with open("config/sources.yaml") as f:
@@ -54,9 +56,6 @@ def main():
         raise
 
     for source_id, params in config["sources"].items():
-        logging.info(f"\nProcessing source {source_id}")
-        logging.info(f"Parameters: {params}")
-        
         try:
             source = Source(
                 source_id=source_id,
@@ -65,15 +64,14 @@ def main():
             )
 
             results_df = analyze_source(source, output_path)
-            output_file = output_path / f"source_{source_id}_results.csv"
-            results_df.to_csv(output_file, index=None)
-            logging.info(f"Results saved to {output_file}")
-            
+            if results_df is not None and not results_df.empty:
+                output_file = output_path / f"source_{source_id}_results.csv"
+                results_df.to_csv(output_file, index=None)
+                logging.info(f"Results saved to {output_file}")
+
         except Exception as e:
             logging.error(f"Failed to process source {source_id}: {e}")
             continue
-
-    logging.info("Completed processing all sources")
 
 
 if __name__ == "__main__":
