@@ -23,10 +23,11 @@ class Source:
         # Pattern to find all observation directories
         obs_pattern = "*/PPS/PN/*SRSPEC*.FTZ"
         spectra = list(self.source_path.glob(obs_pattern))
-        
+
         if not spectra:
             raise FileNotFoundError(
-                f"No spectra found for source {self.source_id} in {self.source_path}"
+                "No spectra found for source "
+                f"{self.source_id} in {self.source_path}"
             )
-            
+
         return sorted(spectra)  # Sort to ensure consistent ordering

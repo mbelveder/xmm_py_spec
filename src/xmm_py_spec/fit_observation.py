@@ -23,7 +23,9 @@ def setup_logging(output_path: Path):
 
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(
-        logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
     )
     logger.addHandler(file_handler)
 
@@ -35,7 +37,10 @@ def setup_logging(output_path: Path):
 
 
 def main():
-    """Main entry point for fitting observations."""
+    """
+    Main entry point for fitting observations.
+    Implemented in analyze_spectral_variability.py.
+    """
     # Convert paths to absolute at the start
     base_path = Path("data/downloaded_spectra").resolve()
     output_path = Path("data").resolve()

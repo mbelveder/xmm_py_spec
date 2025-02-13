@@ -207,7 +207,9 @@ def combine_spectra(
                 logging.info(f"Successfully combined spectra in {src_dir}")
                 if group:
                     if run_ftgrouppha(src_dir):
-                        logging.info(f"Successfully grouped spectra in {src_dir}")
+                        logging.info(
+                            f"Successfully grouped spectra in {src_dir}"
+                        )
                     else:
                         logging.error(f"Failed to group spectra for {src_dir}")
             else:

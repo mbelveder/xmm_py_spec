@@ -63,7 +63,7 @@ def set_mpl(palette='shap', desat=0.8):
         # colors from shap package: https://github.com/slundberg/shap
         cp = sns.color_palette(
             ["#1E88E5", "#ff0d57", "#13B755", "#7C52FF", "#FFC000", "#00AEEF"]
-            )
+        )
         sns.set_palette(cp, color_codes=True, desat=desat)
     elif palette == 'shap_paired':
         # colors from shap package: https://github.com/slundberg/shap
@@ -78,4 +78,4 @@ def set_mpl(palette='shap', desat=0.8):
         sns.set_palette(palette, color_codes=True, desat=desat)
 
 
-set_mpl()
+# set_mpl()

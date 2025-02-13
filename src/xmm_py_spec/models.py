@@ -54,7 +54,7 @@ def extract_xspec_values(
 def ellipse_minmax(
         x: np.array, y: np.array, z: np.array,
         levels: int | np.ndarray, ax: plt.Axes
-        ) -> Tuple[Tuple, Tuple]:
+) -> Tuple[Tuple, Tuple]:
     """
     Extracts parameter errors from 2d steppar contours directly.
     https://heasarc.gsfc.nasa.gov/xanadu/xspec/manual/node86.html
@@ -74,7 +74,7 @@ def ellipse_minmax(
     # Plot the contour
     CS = ax.contour(
         x, y, z, levels, colors=['red']
-        )
+    )
 
     contour_lines = CS.allsegs[0]
 
@@ -85,15 +85,15 @@ def ellipse_minmax(
         for contour_line in contour_lines:
             all_contour_dots = np.vstack(
                 [all_contour_dots, contour_line]
-                )
+            )
         x_ellipse, y_ellipse = (
             all_contour_dots[:, 0], all_contour_dots[:, 1]
-            )
+        )
     else:
         all_contour_dots = CS.allsegs[0][0]
         x_ellipse, y_ellipse = (
             all_contour_dots[:, 0], all_contour_dots[:, 1]
-            )
+        )
     x_min_max = (min(x_ellipse), max(x_ellipse))
     y_min_max = (min(y_ellipse), max(y_ellipse))
 
@@ -103,7 +103,7 @@ def ellipse_minmax(
 def extract_errors_from_2d_contour(
         series: pd.Series, ellipse_minmax: Callable,
         plot_savepath: str = ''
-        ) -> pd.Series:
+) -> pd.Series:
     """
     Extracts parameter errors from 2d steppar contours directly and adds them
     into `series`.
@@ -129,11 +129,11 @@ def extract_errors_from_2d_contour(
         step2d_x, step2d_y, step2d_z,
         np.append(levelvals - 2.71, levelvals),
         colors='red', alpha=.1
-        )
+    )
 
     _ = ax.contour(
         step2d_x, step2d_y, step2d_z, levelvals, colors=['red'],
-        )
+    )
 
     # Find the index of the minimum value (best fit)
     argmin_id = np.unravel_index(step2d_z.argmin(), step2d_z.shape)
@@ -174,7 +174,7 @@ def extract_errors_from_2d_contour(
 
     ax.axhline(
         phoind_2d_bf, color='gray', ls='--'
-        )
+    )
 
     ax.axvline(
         nh_2d_bf, color='gray', ls='--'
@@ -195,7 +195,7 @@ def mo2_fit_xmm(
         specname: str, rshift: float, en_lower: float, en_upper: float,
         model_str: str, title: str, plot_path: Path, date_obs, obs_id,
         phoind_fixed=False
-        ) -> pd.Series:
+) -> pd.Series:
     """
     Performs a fit for a single spectrum using a specified model.
 
@@ -299,7 +299,10 @@ def mo2_fit_xmm(
 
         AllModels.calcFlux("0.5 2.0 err 500")
         flux_tuple = AllData(1).flux
-        logging.info(f"Flux calculated: {flux_tuple[0]:.2e} (+{flux_tuple[2]:.2e}/-{flux_tuple[1]:.2e})")
+        logging.info(
+            f"Flux calculated: {flux_tuple[0]:.2e} "
+            f"(+{flux_tuple[2]:.2e}/-{flux_tuple[1]:.2e})"
+        )
 
         suffix = model_str.replace("*", "_") + '_3stepp_kev'
         xspec_datamodel_file = f'xspec_{suffix}_{specname.split(".")[0]}.xcm'
@@ -331,7 +334,7 @@ def mo2_fit_xmm(
         # Extract the best-fit parameter values and errors
         fit_result = extract_xspec_values(
             fit_result, zphabs_zpo_model, prefix='mo2'
-            )
+        )
 
         # Add the fit results and contour plot data to the output DataFrame
         fit_result['step2d_labels'] = np.array(step2d_labels)
@@ -355,7 +358,7 @@ def mo2_fit_xmm(
         colors = 'red'
         ls = '-'
 
-        marker='o'
+        marker = 'o'
         s = 2
 
         # Filled contour
@@ -376,7 +379,7 @@ def mo2_fit_xmm(
             fit_result['mo2_nH_step_2d'],
             fit_result['mo2_PhoIndex_step_2d'], s=s, color='k',
             zorder=10, marker=marker
-            )
+        )
 
         ax3.set_xlabel(r'$N_{\rm H}\ (10^{22})$')
         ax3.set_ylabel('Г')

@@ -78,14 +78,15 @@ def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
         logging.info(f"Spectrum path: {spectrum_path}")
 
         try:
-            coord_str, exp_str, date_str, date_obs, obs_id = extract_title(spectrum_path)
+            coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
+                spectrum_path
+            )
             logging.info(f"Observation details: {date_str} | {exp_str}")
             title = f'{coord_str} | {exp_str} | {date_str}'
 
             # Extract obs_id and src_num from directory structure
             src_path = spectrum_path.parent.parent.parent
             logging.info(f"src_path: {src_path}")
-            # src_num = src_path.name.split('_')[1]  # Get src_num from directory name
             plot_name = f"{src_path.name}.png"
             plot_path = plots_dir / plot_name
             logging.info(f"Plot will be saved as: {plot_name} at {plot_path}")
@@ -114,6 +115,9 @@ def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
 
     n_success = len(fit_results)
     logging.info(f"\nCompleted analysis of source {source.source_id}")
-    logging.info(f"Successfully processed {n_success}/{len(source.observations)} observations")
+    logging.info(
+        f"Successfully processed {n_success}/{len(source.observations)} "
+        "observations"
+    )
 
     return pd.DataFrame(fit_results) if fit_results else pd.DataFrame()
