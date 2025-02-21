@@ -39,3 +39,7 @@ base_dir/
                 ├── image.PNG
                 └── report.PDF
 ```
+
+### TODO
+
+- Check why .rmf files are missing for some observations
