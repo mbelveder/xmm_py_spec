@@ -116,38 +116,40 @@ def convert_to_docker_path(path: Path) -> str:
 def build_combine_args(
         spec_files: List[Dict[str, List[Path]]], source_dir: Path
 ) -> List[str]:
-    """Build epicspeccombine arguments with docker paths."""
-    combined_files = {
-        'spec': [],
-        'bkg': [],
-        'rmf': [],
-        'arf': []
+    """Build epicspeccombine arguments with docker paths.
+
+    Args:
+        spec_files: List of dictionaries containing paths to spectral files
+        source_dir: Directory where combined files will be saved
+
+    Returns:
+        List of formatted arguments for epicspeccombine
+    """
+    # Initialize with empty lists for each file type
+    files_by_type = {
+        'spec': ('pha', []),
+        'bkg': ('bkg', []),
+        'rmf': ('rmf', []),
+        'arf': ('arf', [])
     }
 
-    # Collect all files from each observation
-    for files in spec_files:
-        for key in combined_files:
-            combined_files[key].extend(files[key])
+    # Collect all files
+    for observation in spec_files:
+        for file_type in files_by_type:
+            files_by_type[file_type][1].extend(observation[file_type])
 
-    args = []
-    # Join docker paths with spaces for each file type
-    for key, files in combined_files.items():
-        docker_paths = [convert_to_docker_path(f) for f in files]
-        if key == 'spec':
-            args.append(f"pha='{' '.join(docker_paths)}'")
-        elif key == 'bkg':
-            args.append(f"bkg='{' '.join(docker_paths)}'")
-        elif key == 'rmf':
-            args.append(f"rmf='{' '.join(docker_paths)}'")
-        elif key == 'arf':
-            args.append(f"arf='{' '.join(docker_paths)}'")
+    # Build arguments list
+    args = [
+        f"{param}='{' '.join(convert_to_docker_path(f) for f in files)}'"
+        for _, (param, files) in files_by_type.items()
+    ]
 
-    # Add output files with app/ prefix
-    output_docker_path = convert_to_docker_path(source_dir)
+    # Add output files
+    output_path = convert_to_docker_path(source_dir)
     args.extend([
-        f"filepha='{output_docker_path}/combined_spectrum.ds'",
-        f"filebkg='{output_docker_path}/combined_background.ds'",
-        f"filersp='{output_docker_path}/combined_response.rmf'"
+        f"filepha='{output_path}/combined_spectrum.ds'",
+        f"filebkg='{output_path}/combined_background.ds'",
+        f"filersp='{output_path}/combined_response.rmf'"
     ])
 
     return args
@@ -181,8 +183,48 @@ def find_spectral_files(src_dir: Path) -> List[Dict[str, List[Path]]]:
     return spec_files
 
 
+def process_single_source(src_dir: Path, group: bool = False) -> bool:
+    """Process a single source directory."""
+    logging.info(f"Processing source directory: {src_dir}")
+
+    try:
+        spec_files = find_spectral_files(src_dir)
+        if not spec_files:
+            logging.warning(f"No complete spectral sets found in {src_dir}")
+            return False
+
+        return combine_source_spectra(src_dir, spec_files, group)
+    except Exception as e:
+        logging.error(f"Error processing {src_dir}: {str(e)}")
+        return False
+
+
+def combine_source_spectra(
+    src_dir: Path, spec_files: List[Dict[str, List[Path]]], group: bool
+) -> bool:
+    """Combine and optionally group spectra for a single source."""
+    # Build and run combine command
+    args = build_combine_args(spec_files, src_dir)
+    save_debug_command(args, src_dir)
+
+    if not run_spcombine(args):
+        logging.error(f"Failed to combine spectra for {src_dir}")
+        return False
+
+    logging.info(f"Successfully combined spectra in {src_dir}")
+
+    # Handle grouping if requested
+    if group:
+        if not run_ftgrouppha(src_dir):
+            logging.error(f"Failed to group spectra for {src_dir}")
+            return False
+        logging.info(f"Successfully grouped spectra in {src_dir}")
+
+    return True
+
+
 def combine_spectra(
-        base_dir: str = "data/downloaded_spectra", group: bool = False
+    base_dir: str = "data/downloaded_spectra", group: bool = False
 ) -> None:
     """Combine spectra for each source and optionally group them."""
     base_path = Path(base_dir)
@@ -190,34 +232,9 @@ def combine_spectra(
         logging.error(f"Base directory {base_dir} does not exist")
         return
 
-    for src_dir in base_path.iterdir():
-        if not src_dir.is_dir():
-            continue
-
-        try:
-            spec_files = find_spectral_files(src_dir)
-            if not spec_files:
-                logging.warning(f"No complete spectral sets found in {src_dir}")
-                continue
-
-            args = build_combine_args(spec_files, src_dir)
-            save_debug_command(args, src_dir)
-
-            if run_spcombine(args):
-                logging.info(f"Successfully combined spectra in {src_dir}")
-                if group:
-                    if run_ftgrouppha(src_dir):
-                        logging.info(
-                            f"Successfully grouped spectra in {src_dir}"
-                        )
-                    else:
-                        logging.error(f"Failed to group spectra for {src_dir}")
-            else:
-                logging.error(f"Failed to combine spectra for {src_dir}")
-
-        except Exception as e:
-            logging.error(f"Error processing {src_dir}: {str(e)}")
-            continue
+    # Process each source directory
+    for src_dir in (d for d in base_path.iterdir() if d.is_dir()):
+        process_single_source(src_dir, group)
 
 
 def main():
@@ -227,8 +244,8 @@ def main():
     )
     parser.add_argument(
         '--base-dir',
-        default="data/downloaded_spectra",
-        help="Base directory for spectra (default: data/downloaded_spectra)"
+        default="data/downloaded_spectra/test",
+        help="Base directory for spectra (default: data/downloaded_spectra/test)"
     )
     parser.add_argument(
         '--group',
