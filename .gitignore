@@ -26,6 +26,9 @@ dist/
 .coverage
 htmlcov/
 
+# redshifts
+config/
+
 # Other
 *.log
 notebooks/
