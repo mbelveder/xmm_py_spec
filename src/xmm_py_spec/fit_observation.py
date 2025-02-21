@@ -42,8 +42,8 @@ def main():
     Implemented in analyze_spectral_variability.py.
     """
     # Convert paths to absolute at the start
-    base_path = Path("data/downloaded_spectra").resolve()
-    output_path = Path("data").resolve()
+    base_path = Path("data/downloaded_spectra/test").resolve()
+    output_path = Path("data/test").resolve()
 
     # Ensure base output directory exists
     output_path.mkdir(parents=True, exist_ok=True)

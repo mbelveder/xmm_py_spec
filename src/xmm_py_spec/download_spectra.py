@@ -302,7 +302,7 @@ def validate_obs_table(obs_table: List[Dict]) -> None:
 
 
 def download_spectra(
-    obs_table: List[Dict], base_dir: str = "data/downloaded_spectra"
+    obs_table: List[Dict], base_dir: str = "data/downloaded_spectra/test"
 ) -> None:
     """Download spectral data for multiple XMM-Newton observations."""
     validate_obs_table(obs_table)
@@ -343,7 +343,7 @@ def main():
     )
     parser.add_argument(
         '--base-dir',
-        default="data/downloaded_spectra",
+        default="data/downloaded_spectra/test",
         help="Base directory for downloads (default: data/downloaded_spectra)")
 
     args = parser.parse_args()
