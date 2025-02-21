@@ -4,6 +4,9 @@ install:
 download_spectra:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_sources_lh.csv
 
+download_spectra_full_list:
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_lh_full.csv
+
 combine_spectra:
 		poetry run python -m xmm_py_spec.combine_spectra
 
