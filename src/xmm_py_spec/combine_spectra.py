@@ -244,8 +244,8 @@ def main():
     )
     parser.add_argument(
         '--base-dir',
-        default="data/downloaded_spectra/test",
-        help="Base directory for spectra (default: data/downloaded_spectra/test)"
+        default="data/downloaded_spectra",
+        help="Base directory for spectra (default: data/downloaded_spectra)"
     )
     parser.add_argument(
         '--group',
