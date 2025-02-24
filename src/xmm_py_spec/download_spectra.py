@@ -19,8 +19,8 @@ from http.client import RemoteDisconnected
 from requests.exceptions import ConnectionError
 import random
 import tarfile
-import pandas as pd
 import json
+import pandas as pd
 
 LEVEL = "PPS"
 INSTNAME = "PN"
@@ -64,7 +64,9 @@ def clear_log_file(srcid: str, base_dir: str, obs_data: Dict = None) -> None:
     log_dir = get_source_dir(base_dir, srcid, obs_data)
     log_file = log_dir / "download.log"
     if log_file.exists():
-        log_file.write_text('')
+        # Add visual divider before clearing
+        with open(log_file, 'a') as f:
+            f.write("\n" + "=" * 80 + "\n\n")
 
 
 def prepare_download(
@@ -136,31 +138,31 @@ def organize_files(output_dir: Path) -> None:
                 shutil.move(str(file), str(target))
 
 
-def reorganize_extracted_files(base_path: Path, obs_id: str) -> None:
+def reorganize_extracted_files(base_path: Path, obs_id: str, cleanup: bool = True) -> None:
     """
-    Reorganize files from astroquery's structure into our desired structure.
+    Copy files from astroquery's structure to our directory structure.
+    Optionally preserve original files for debugging.
 
-    Moves files from:
-        base_path/{obs_id}/pps/*
-    To:
-        base_path/{LEVEL}/{INSTNAME}/*
+    Args:
+        base_path: Base directory path
+        obs_id: Observation ID
+        cleanup: Whether to remove source files after copying (default: True)
     """
-    # Source directory (astroquery's structure)
     source_dir = base_path / obs_id / "pps"
     if not source_dir.exists():
         return
 
-    # Target directory (our desired structure)
     target_dir = base_path / LEVEL / INSTNAME
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # Move all files
+    # Copy all files, preserving original structure
     for file_path in source_dir.glob('*'):
         target_path = target_dir / file_path.name
-        shutil.move(str(file_path), str(target_path))
-
-    # Cleanup original directory structure
-    shutil.rmtree(base_path / obs_id)
+        shutil.copy2(str(file_path), str(target_path))
+    
+    # Optionally cleanup source directory
+    if cleanup and source_dir.exists():
+        shutil.rmtree(source_dir.parent)
 
 
 def is_directory_empty(path: Path) -> bool:
@@ -170,17 +172,18 @@ def is_directory_empty(path: Path) -> bool:
 
 def extract_all_files(tar_file: Path, output_dir: Path) -> None:
     """Extract all files from tarfile to output directory."""
-    extentions = ['.FTZ', '.PNG', '.PDF']
     with tarfile.open(tar_file, 'r') as tar:
         for member in tar.getmembers():
-            if any(member.name.endswith(ext) for ext in extentions):
+            if any(member.name.endswith(ext) for ext in ['.FTZ', '.PNG', '.PDF']):
                 tar.extract(member, output_dir)
 
 
 def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
-    """Update the meta log file with observation status."""
-    meta_log_path = Path(base_dir) / "download_meta.csv"
-
+    """Update both CSV and human-readable meta log files."""
+    base_path = Path(base_dir)
+    csv_path = base_path / "download_meta.csv"
+    human_log_path = base_path / "download_meta.log"
+    
     # Prepare log entry
     log_entry = {
         'srcid': obs_data['srcid'],
@@ -189,43 +192,69 @@ def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
         'user_srcid': obs_data.get('user_srcid', ''),
         'status': status,
         'timestamp': datetime.now().isoformat(),
-        'details': json.dumps(obs_data)  # Store full observation data
+        'details': json.dumps(obs_data)
     }
-
+    
     try:
-        # Load existing log or create new
-        if meta_log_path.exists():
-            df = pd.read_csv(meta_log_path)
+        # Update CSV log
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
             # Update existing entry or append new one
             mask = (df['srcid'] == obs_data['srcid']) & \
-                   (df['obs_id'] == obs_data['obs_id']) & \
-                   (df['src_num'] == obs_data['src_num'])
+                  (df['obs_id'] == obs_data['obs_id']) & \
+                  (df['src_num'] == obs_data['src_num'])
             if mask.any():
-                df.loc[mask, ['status', 'timestamp']] = [
-                    status, log_entry['timestamp']
-                ]
+                df.loc[mask, ['status', 'timestamp']] = [status, log_entry['timestamp']]
             else:
-                df = pd.concat(
-                    [df, pd.DataFrame([log_entry])], ignore_index=True
-                )
+                df = pd.concat([df, pd.DataFrame([log_entry])], ignore_index=True)
         else:
             df = pd.DataFrame([log_entry])
-
-        # Save updated log
-        df.to_csv(meta_log_path, index=False)
+        
+        df.to_csv(csv_path, index=False)
+        
+        # Update human-readable log
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        human_msg = (
+            f"[{timestamp}] "
+            f"Source: {obs_data['srcid']} (User ID: {obs_data.get('user_srcid', 'N/A')}) "
+            f"ObsID: {obs_data['obs_id']} "
+            f"SrcNum: {obs_data['src_num']} "
+            f"Status: {status}\n"
+        )
+        
+        with open(human_log_path, 'a') as f:
+            f.write(human_msg)
+            
     except Exception as e:
-        print(f"Warning: Failed to update meta log: {e}")
+        print(f"Warning: Failed to update meta logs: {e}")
+
+
+def validate_download_files(dir_path: Path) -> Dict[str, bool]:
+    """Validate presence of required spectral files.
+
+    Returns:
+        Dict with file types and their presence status
+    """
+    required_patterns = {
+        'spectrum': '*SRSPEC*.FTZ',
+        'background': '*BGSPEC*.FTZ',
+        'arf': '*SRCARF*.FTZ',
+        'rmf': '*.rmf'
+    }
+
+    validation = {}
+    for file_type, pattern in required_patterns.items():
+        files = list(dir_path.glob(pattern))
+        validation[file_type] = bool(files)
+
+    return validation
 
 
 def download_observation(
-    srcid: str, obs_id: str, src_num: int, base_dir: str, obs_data: Dict = None
+    srcid: str, obs_id: str, src_num: int, base_dir: str, 
+    obs_data: Dict = None, cleanup: bool = True
 ) -> bool:
     """Download and organize data for a single XMM-Newton observation."""
-
-    obs_data = obs_data or {
-        'srcid': srcid, 'obs_id': obs_id, 'src_num': src_num
-    }
-
     output_dir, obs_id = prepare_download(
         srcid, obs_id, src_num, base_dir, obs_data
     )
@@ -233,18 +262,15 @@ def download_observation(
     if output_dir.exists():
         # Only skip if directory has content, retry if empty
         if not is_directory_empty(output_dir):
-            update_meta_log(obs_data, "SKIPPED_EXISTS", base_dir)
-            log_download_status(
-                srcid, obs_id, src_num, base_dir, "SKIPPED_EXISTS", obs_data
-            )
-            print(
-                f"Skipping {obs_id}_{src_num} - directory exists with files\n"
-            )
+            status = "SKIPPED_EXISTS"
+            log_download_status(srcid, obs_id, src_num, base_dir, status, obs_data)
+            update_meta_log(obs_data, status, base_dir)
+            print(f"Skipping {obs_id}_{src_num} - directory exists with files\n")
             return True
         else:
-            log_download_status(
-                srcid, obs_id, src_num, base_dir, "RETRY_EMPTY_DIR", obs_data
-            )
+            status = "RETRY_EMPTY_DIR"
+            log_download_status(srcid, obs_id, src_num, base_dir, status, obs_data)
+            update_meta_log(obs_data, status, base_dir)
             print(f"Retrying {obs_id}_{src_num} - directory exists but empty\n")
 
     try:
@@ -260,26 +286,33 @@ def download_observation(
         # Then extract remaining files
         extract_all_files(tar_file, output_dir)
 
-        reorganize_extracted_files(output_dir, obs_id)
+        reorganize_extracted_files(output_dir, obs_id, cleanup=cleanup)
 
         tar_file.unlink(missing_ok=True)
-        update_meta_log(obs_data, "SUCCESS", base_dir)
-        log_download_status(
-            srcid, obs_id, src_num, base_dir, "SUCCESS", obs_data
-        )
+
+        # Validate downloaded files
+        validation = validate_download_files(output_dir / LEVEL / INSTNAME)
+        if all(validation.values()):
+            status = "SUCCESS"
+        else:
+            missing = [k for k, v in validation.items() if not v]
+            status = f"INCOMPLETE: Missing {', '.join(missing)}"
+            
+        log_download_status(srcid, obs_id, src_num, base_dir, status, obs_data)
+        update_meta_log(obs_data, status, base_dir)
         return True
 
     except Exception as e:
-        error_msg = str(e)
-        update_meta_log(obs_data, f"ERROR: {error_msg}", base_dir)
+        status = f"ERROR: {str(e)}"
         log_download_status(
-            srcid, obs_id, src_num, base_dir, f"ERROR: {error_msg}", obs_data
+            srcid, obs_id, src_num, base_dir, status, obs_data
         )
-        print(f"Error processing {obs_id}_{src_num}: {error_msg}\n")
+        update_meta_log(obs_data, status, base_dir)
+        print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
         return False
 
 
-def process_downloads(obs_table: List[Dict], base_dir: str) -> None:
+def process_downloads(obs_table: List[Dict], base_dir: str, cleanup: bool = True) -> None:
     """Process all downloads from the observation table."""
     for obs in obs_table:
         download_observation(
@@ -287,7 +320,8 @@ def process_downloads(obs_table: List[Dict], base_dir: str) -> None:
             obs['obs_id'],
             int(obs['src_num']),
             base_dir,
-            obs
+            obs,
+            cleanup=cleanup
         )
 
 
@@ -301,24 +335,63 @@ def validate_obs_table(obs_table: List[Dict]) -> None:
         raise ValueError(f"Missing required fields: {required_fields}")
 
 
+def validate_all_downloads(base_dir: str) -> None:
+    """
+    Double check all downloaded files after session completion.
+    Append validation results to human-readable log.
+    """
+    base_path = Path(base_dir)
+    human_log_path = base_path / "download_meta.log"
+
+    with open(human_log_path, 'a') as f:
+        f.write("\nFinal validation of downloaded files:\n")
+        f.write("-" * 40 + "\n")
+
+        incomplete_dirs = []
+        # Check each source directory
+        for src_dir in base_path.iterdir():
+            if not src_dir.is_dir():
+                continue
+
+            for pps_dir in src_dir.glob(f"**/{LEVEL}/{INSTNAME}/"):
+                validation = validate_download_files(pps_dir)
+                if not all(validation.values()):
+                    missing = [k for k, v in validation.items() if not v]
+                    incomplete_dirs.append(
+                        f"{pps_dir.parent.name}: Missing {', '.join(missing)}"
+                    )
+
+        if incomplete_dirs:
+            f.write("Incomplete downloads found:\n")
+            for dir_info in incomplete_dirs:
+                f.write(f"- {dir_info}\n")
+        else:
+            f.write("All downloads complete and validated successfully\n")
+
+        f.write("\nDownload session completed.\n")
+        f.write("=" * 80 + "\n")
+
+
 def download_spectra(
-    obs_table: List[Dict], base_dir: str = "data/downloaded_spectra/test"
+    obs_table: List[Dict], 
+    base_dir: str = "data/downloaded_spectra",
+    cleanup: bool = True
 ) -> None:
     """Download spectral data for multiple XMM-Newton observations."""
     validate_obs_table(obs_table)
 
-    # Create base directory if it doesn't exist
-    Path(base_dir).mkdir(parents=True, exist_ok=True)
+    # Add session divider to human-readable log
+    human_log_path = Path(base_dir) / "download_meta.log"
+    with open(human_log_path, 'a') as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"Starting new download session at {datetime.now()}\n\n")
 
-    # Initialize meta log if needed
-    meta_log_path = Path(base_dir) / "download_meta.csv"
-    if not meta_log_path.exists():
-        pd.DataFrame(columns=[
-            'srcid', 'obs_id', 'src_num', 'user_srcid',
-            'status', 'timestamp', 'details'
-        ]).to_csv(meta_log_path, index=False)
+    # Clear CSV meta log for new session
+    csv_path = Path(base_dir) / "download_meta.csv"
+    if csv_path.exists():
+        csv_path.unlink()
 
-    # Clear logs for each unique source/user combination
+    # Clear individual logs
     seen_sources = set()
     for obs in obs_table:
         source_key = (obs['srcid'], obs.get('user_srcid'))
@@ -327,7 +400,8 @@ def download_spectra(
             clear_log_file(obs['srcid'], base_dir, obs)
 
     try:
-        process_downloads(obs_table, base_dir)
+        process_downloads(obs_table, base_dir, cleanup=cleanup)
+        validate_all_downloads(base_dir)  # Add final validation
     except Exception as e:
         print(f"Download failed: {str(e)}")
         raise
@@ -343,15 +417,24 @@ def main():
     )
     parser.add_argument(
         '--base-dir',
-        default="data/downloaded_spectra/test",
+        default="data/downloaded_spectra/",
         help="Base directory for downloads (default: data/downloaded_spectra)")
+    parser.add_argument(
+        '--keep-source',
+        action='store_true',
+        help="Keep original astroquery files (useful for debugging)"
+    )
 
     args = parser.parse_args()
 
     try:
         obs_table = load_source_list(args.csv_path)
         print("\nStarting XMM download using astroquery...\n")
-        download_spectra(obs_table, base_dir=args.base_dir)
+        download_spectra(
+            obs_table, 
+            base_dir=args.base_dir,
+            cleanup=not args.keep_source
+        )
     except Exception as e:
         print(f"Download failed: {e}")
         raise
