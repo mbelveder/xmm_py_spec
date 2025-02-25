@@ -35,44 +35,9 @@ def test_download_spectra_empty_table():
         download_spectra([])
 
 
-# # Test handling of observation table with missing required fields
-# def test_download_spectra_missing_fields():
-#     bad_table = [{'obs_id': '123'}]
-#     with pytest.raises(ValueError, match="missing required fields"):
-#         download_spectra(bad_table)
-
-
-# def test_clear_log_file(tmp_path):
-#     """Test log file clearing functionality."""
-#     log_dir = tmp_path / "123"
-#     log_dir.mkdir()
-#     log_file = log_dir / "download.log"
-
-#     # Create log with content
-#     log_file.write_text("old content")
-
-#     clear_log_file("123", tmp_path)
-#     assert log_file.read_text() == ""
-
-
 def test_clear_nonexistent_log(tmp_path):
     """Test clearing non-existent log file."""
     clear_log_file("456", tmp_path)  # Should not raise any error
-
-
-# def test_download_spectra_clears_logs(tmp_path):
-#     """Test that download_spectra clears existing logs."""
-#     # Create existing log
-#     log_dir = tmp_path / "123"
-#     log_dir.mkdir(parents=True)
-#     log_file = log_dir / "download.log"
-#     log_file.write_text("old content")
-
-#     obs_table = [{'srcid': '123', 'obs_id': '456', 'src_num': '7'}]
-#     download_spectra(obs_table, base_dir=str(tmp_path))
-
-#     assert log_file.exists()
-#     assert "old content" not in log_file.read_text()
 
 
 def test_download_spectra_logs_append(tmp_path):
