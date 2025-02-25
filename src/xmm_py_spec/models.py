@@ -8,6 +8,9 @@ from typing import Callable, Tuple
 import logging
 from pathlib import Path
 
+from xmm_py_spec import plotting_settings
+plotting_settings.set_mpl()
+
 
 def extract_xspec_values(
     series: pd.Series, model: Model, prefix: str
@@ -180,7 +183,6 @@ def extract_errors_from_2d_contour(
         nh_2d_bf, color='gray', ls='--'
     )
 
-    # plt.xscale('log')
     ax.set_xlabel(r'$N_{\rm H}\ (10^{22})$')
     ax.set_ylabel('Г')
 
@@ -191,127 +193,138 @@ def extract_errors_from_2d_contour(
     return series
 
 
+def setup_xspec_environment() -> None:
+    """Initialize XSPEC environment with standard parameters."""
+    Xset.parallel.error = 10
+    Xset.parallel.steppar = 10
+    Fit.query = "yes"
+    Fit.statMethod = "cstat"
+    AllData.clear()
+    AllModels.clear()
+
+
+def setup_model(model_str: str, rshift: float) -> Model:
+    """Setup XSPEC model with initial parameters."""
+    model = Model(model_str)
+    model.phabs.nH.values = 7e-3
+    model.phabs.nH.frozen = True
+    model.zphabs.Redshift.values = rshift
+    model.zpowerlw.Redshift.values = rshift
+    return model
+
+
+def perform_steppar_scan() -> dict:
+    """Perform 2D parameter scan and collect results."""
+    logging.info("Starting 2D parameter scan")
+    Fit.steppar('log 2 1e-1 10 100 nolog 4 -1 3 100')
+    logging.info("Steppar completed successfully")
+
+    Plot.addCommand("image off")
+    Plot("contour,,1,2.71")
+    Plot.delCommand(1)
+
+    return {
+        'step2d_labels': Plot.labels(),
+        'step2d_x': np.array(Plot.x()),
+        'step2d_y': np.array(Plot.y()),
+        'step2d_z': np.array(Plot.z()),
+        'statval': Fit.statistic,
+        'levelvals': np.array(Plot.contourLevels())
+    }
+
+
+def calculate_flux() -> Tuple[float, float, float]:
+    """Calculate flux and its errors."""
+    AllModels.calcFlux("0.5 2.0 err 500")
+    flux = AllData(1).flux
+    logging.info(
+        f"Flux calculated: {flux[0]:.2e} (+{flux[2]:.2e}/-{flux[1]:.2e})"
+    )
+    return flux
+
+
+def save_xspec_session(model_str: str, specname: str) -> None:
+    """Save XSPEC session to file."""
+    suffix = model_str.replace("*", "_") + '_3stepp_kev'
+    filename = f'xspec_{suffix}_{specname.split(".")[0]}.xcm'
+    if os.path.exists(filename):
+        os.remove(filename)
+    Xset.save(filename)
+
+
+def plot_contours(
+    fit_result: pd.Series, scan_results: dict,
+    title: str, plot_path: Path
+) -> None:
+    """Create and save contour plot."""
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Plot contours
+    ax.contourf(
+        scan_results['step2d_x'],
+        scan_results['step2d_y'],
+        scan_results['step2d_z'],
+        np.append(scan_results['levelvals'] - 2.71, scan_results['levelvals']),
+        colors='red', alpha=.05
+    )
+
+    ax.contour(
+        scan_results['step2d_x'],
+        scan_results['step2d_y'],
+        scan_results['step2d_z'],
+        np.append(scan_results['levelvals'] - 2.71, scan_results['levelvals']),
+        colors='red', linewidths=0.5, linestyles='-'
+    )
+
+    ax.scatter(
+        fit_result['mo2_nH_step_2d'],
+        fit_result['mo2_PhoIndex_step_2d'],
+        s=2, color='k', zorder=10
+    )
+
+    ax.set_xlabel(r'$N_{\rm H}\ (10^{22})$')
+    ax.set_ylabel('Г')
+    ax.set_xscale('log')
+    ax.set_xlim(0.1, 10)
+    ax.set_ylim(0.3, 2.5)
+
+    fig.suptitle(title, fontsize=12, y=.95)
+    fig.savefig(plot_path, bbox_inches='tight', dpi=200)
+    plt.close(fig)
+
+
 def mo2_fit_xmm(
         specname: str, rshift: float, en_lower: float, en_upper: float,
-        model_str: str, title: str, plot_path: Path, date_obs, obs_id,
-        phoind_fixed=False
+        model_str: str, title: str, plot_path: Path, date_obs, obs_id
 ) -> pd.Series:
-    """
-    Performs a fit for a single spectrum using a specified model.
-
-    Args:
-        srcid (str): source id
-        rshift (float): redshift
-        en_lower (float): lower energy limit
-        en_upper (float): upper energy limit
-        phoind_upper (float): upper limit for the photon index estimated in mo1
-            (for visualization purposes only)
-        cts (int): counts
-        cts_err (float): counts error
-        nn_spec_class (str): a class of the spectrum
-            taken from the LH catalog
-        nn_spec_class_origin (str): a class of the spectrum
-            taken from the LH catalog
-        nn_spec_z (float): a redshift of the spectrum
-            taken from the LH catalog
-        nn_srgz_zph (float): a redshift of the spectrum
-            taken from the LH catalog
-        model_str (str): a model to fit (in Xspec notation)
-        data_path (str): a path to the data
-        plot_path (str): a path to the plots
-        phoind_fixed (bool, optional): a flag to fix the photon index.
-            Defaults to False.
-
-    Returns:
-        pd.Series: a pandas Series containing fit parameters and plotting data
-    """
+    """Performs a fit for a single spectrum using a specified model."""
     logging.info(f"\nFitting spectrum: {specname}")
     logging.info(f"Model: {model_str}, redshift: {rshift}")
     logging.info(f"Energy range: {en_lower}-{en_upper} keV")
 
-    en_lower = float(en_lower)
-    en_upper = float(en_upper)
-
-    # Set Xspec parameters
-    Xset.parallel.error = 10
-    Xset.parallel.steppar = 10
-    Fit.query = "yes"
-    Fit.statMethod = "cstat"  # IMPORTANT
-    # Fit.method = "migrad"
-
-    # Load data and ignore bad energy ranges
-    AllData.clear()
-    AllModels.clear()
+    setup_xspec_environment()
 
     try:
+        # Load and prepare data
         AllData(specname)
         logging.info("Spectrum loaded successfully")
-    except Exception as e:
-        logging.error(f"Failed to load spectrum: {e}")
-        return None
+        AllData.ignore("bad")
+        AllData.ignore(f'**-{float(en_lower)} {float(en_upper)}-**')
 
-    AllData.ignore("bad")
-    AllData.ignore(f'**-{en_lower} {en_upper}-**')
-    print(f'{specname} is riden')
-    print()
-
-    # Set model parameters
-    zphabs_zpo_model = Model(model_str)
-    zphabs_zpo_model.phabs.nH.values = 7e-3
-    zphabs_zpo_model.phabs.nH.frozen = True
-    zphabs_zpo_model.zphabs.Redshift.values = rshift
-    zphabs_zpo_model.zpowerlw.Redshift.values = rshift
-
-    zphabs_zpo_model.zphabs.nH.values = 0
-    zphabs_zpo_model.zphabs.nH.frozen = True
-    Fit.perform()
-    zphabs_zpo_model.zphabs.nH.frozen = False
-    # zphabs_zpo_model.zphabs.nH.values = [0.01, 0.01, 1e-2, 1e-2, 1e3, 1e3]
-    Fit.perform()
-    print()
-    print('Fit.perform() after nH was freezed and then thawed')
-    print()
-
-    # Perform a 2D parameter scan and extract the fit results
-    try:
-        logging.info("Starting 2D parameter scan")
-        Fit.steppar('log 2 1e-1 10 100 nolog 4 -1 3 100')
-        logging.info("Steppar completed successfully")
-
-        # Perform a contour plot of the 2D parameter scan
-        # Do it now, because 1d steppars are follows
-        Plot.addCommand("image off")
-        Plot("contour,,1,2.71")
-        Plot.delCommand(1)
-        step2d_labels = Plot.labels()
-        step2d_x = np.array(Plot.x())
-        step2d_y = np.array(Plot.y())
-        step2d_z = np.array(Plot.z())
-        statval = Fit.statistic
-        levelvals = np.array(Plot.contourLevels())
-
-        # 2.71 is 90% confidence for 1 parameter, 1-3 is the range
-        # of parameters to fit
-        err_commdns = f"2.71 1-{zphabs_zpo_model.nParameters}"
-
+        # Perform fitting
+        model = setup_model(model_str, rshift)
+        model.zphabs.nH.values = 0
+        model.zphabs.nH.frozen = True
         Fit.perform()
-        Fit.error(err_commdns)
+        model.zphabs.nH.frozen = False
+        Fit.perform()
 
-        AllModels.calcFlux("0.5 2.0 err 500")
-        flux_tuple = AllData(1).flux
-        logging.info(
-            f"Flux calculated: {flux_tuple[0]:.2e} "
-            f"(+{flux_tuple[2]:.2e}/-{flux_tuple[1]:.2e})"
-        )
+        # Collect results
+        scan_results = perform_steppar_scan()
+        flux = calculate_flux()
+        save_xspec_session(model_str, specname)
 
-        suffix = model_str.replace("*", "_") + '_3stepp_kev'
-        xspec_datamodel_file = f'xspec_{suffix}_{specname.split(".")[0]}.xcm'
-        # phoind_value_errors, phoind_step_coords = make_steppar('4 -5 9 500')
-
-        # (phoind_bf, phoind_low_lim, phoind_up_lim) = phoind_value_errors
-        # phoind_perr = phoind_up_lim - phoind_bf
-        # phoind_nerr = phoind_bf - phoind_low_lim
-
+        # Create results container
         fit_result = pd.Series({
             'filename': specname,
             'date_obs': date_obs,
@@ -320,30 +333,14 @@ def mo2_fit_xmm(
             'mo2_cstat': Fit.statistic,
             'mo2_dof': Fit.dof,
             'mo2_cstat_r': Fit.statistic / Fit.dof,
-            'flux': flux_tuple[0],
-            'flux_nerr': flux_tuple[1],
-            'flux_perr': flux_tuple[2]}
-        )
+            'flux': flux[0],
+            'flux_nerr': flux[1],
+            'flux_perr': flux[2],
+            **scan_results
+        })
 
-        if os.path.exists(xspec_datamodel_file):
-            os.remove(xspec_datamodel_file)
-        Xset.save(xspec_datamodel_file)
-
-        # fit_result = pd.Series()
-
-        # Extract the best-fit parameter values and errors
-        fit_result = extract_xspec_values(
-            fit_result, zphabs_zpo_model, prefix='mo2'
-        )
-
-        # Add the fit results and contour plot data to the output DataFrame
-        fit_result['step2d_labels'] = np.array(step2d_labels)
-        fit_result['step2d_x'] = np.array(step2d_x)
-        fit_result['step2d_y'] = np.array(step2d_y)
-        fit_result['step2d_z'] = np.array(step2d_z)
-        fit_result['statval'] = np.array(statval)
-        fit_result['levelvals'] = levelvals
-
+        # Extract additional parameters
+        fit_result = extract_xspec_values(fit_result, model, prefix='mo2')
         try:
             fit_result = extract_errors_from_2d_contour(
                 fit_result, ellipse_minmax, plot_savepath=''
@@ -352,51 +349,11 @@ def mo2_fit_xmm(
             logging.error(f"Failed to extract 2d contours for {specname}: {e}")
             return None
 
-        # fig = plt.figure(figsize=(6, 8))
-        fig, ax3 = plt.subplots(figsize=(6, 6))
-
-        colors = 'red'
-        ls = '-'
-
-        marker = 'o'
-        s = 2
-
-        # Filled contour
-        ax3.contourf(
-            step2d_x, step2d_y, step2d_z,
-            np.append(levelvals - 2.71, levelvals),
-            colors=colors, alpha=.05
-        )
-        # Empty contour
-
-        ax3.contour(
-            step2d_x, step2d_y, step2d_z,
-            np.append(levelvals - 2.71, levelvals),
-            colors=colors, linewidths=0.5, linestyles=ls
-        )
-
-        ax3.scatter(
-            fit_result['mo2_nH_step_2d'],
-            fit_result['mo2_PhoIndex_step_2d'], s=s, color='k',
-            zorder=10, marker=marker
-        )
-
-        ax3.set_xlabel(r'$N_{\rm H}\ (10^{22})$')
-        ax3.set_ylabel('Г')
-        ax3.set_xscale('log')
-        ax3.set_xlim(0.1, 10)
-        ax3.set_ylim(0.3, 2.5)
-
-        fig.suptitle(title, fontsize=12, y=.95)
-
-        # Plot saving section
+        # Save visualization
         if plot_path:
             try:
-                # Ensure parent directory exists
                 plot_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # Save plot directly to the provided path
-                fig.savefig(plot_path, bbox_inches='tight', dpi=200)
+                plot_contours(fit_result, scan_results, title, plot_path)
                 logging.info(f"Saving plot to: {plot_path}")
             except Exception as e:
                 logging.error(f"Failed to save plot: {e}")
