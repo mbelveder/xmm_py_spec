@@ -70,8 +70,8 @@ def clear_log_file(srcid: str, base_dir: str, obs_data: Dict = None) -> None:
 
 
 def prepare_download(
-        srcid: str, obs_id: str, src_num: int, base_dir: str,
-        obs_data: Dict = None
+    srcid: str, obs_id: str, src_num: int, base_dir: str,
+    obs_data: Dict = None
 ) -> tuple[Path, str]:
     """Prepare download paths and normalize observation ID."""
     if len(obs_id) < 10:
