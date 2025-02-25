@@ -1,6 +1,4 @@
 """
-XMM-Newton Science Archive Data Download Module (Astroquery-based)
-
 Downloads and organizes spectral data using astroquery's XMMNewton interface.
 """
 
