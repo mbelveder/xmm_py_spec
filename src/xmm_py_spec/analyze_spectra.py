@@ -21,8 +21,15 @@ def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
 
 
 def setup_and_save_spectrum(spectrum_path: Path) -> bool:
-    """Load, setup and save XSpec session for a spectrum."""
+    """Load, setup and save Xspec session for a spectrum."""
     try:
+        # Clear any existing XSPEC state
+        xspec.AllData.clear()
+        xspec.AllModels.clear()
+
+        xspec.Xset.chatter = 10
+        xspec.Fit.statMethod = "cstat"
+
         fix_spectrum_paths_inplace(spectrum_path)
 
         # Cleanup existing session
@@ -32,29 +39,33 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
             session_path.unlink()
 
         # Load single spectrum
-        print(str(spectrum_path))
         s = xspec.Spectrum(str(spectrum_path))
         logging.info(f"Spectrum loaded: {s.fileName}")
 
         # Setup basic parameters
         s.ignore("bad")
         s.ignore("**-0.3 11.0-**")
-        xspec.Xset.chatter = 10
-        xspec.Fit.statMethod = "cstat"
 
         # Load model
-        model = xspec.Model("powerlaw")
+        _ = xspec.Model("powerlaw")
         logging.info("Loaded powerlaw model")
-        logging.info(f"Initial parameters: {model}")
 
         # Log spectrum details
-        logging.info(f"Energy range: {s.energies[0]}-{s.energies[-1]} keV")
-        logging.info(f"Background: {s.background}")
-        logging.info(f"Response: {s.response.rmf}")
+        logging.info(
+            f"Energy range: {s.energies[0][0]:.2f}-{s.energies[-1][1]:.2f} keV"
+        )
 
         # Save session
         xspec.Xset.save(str(session_path), info='a')
         logging.info(f"Session saved to: {session_path}")
+
+        # Append plotting commands to the session file
+        with open(session_path, 'a') as f:
+            f.write(
+                '\ncpd /xw\nsetpl en\nsetpl r 10 10\nquery yes'
+                '\nfit\npl eeufs\nshow all'
+            )
+
         return True
 
     except Exception as e:
