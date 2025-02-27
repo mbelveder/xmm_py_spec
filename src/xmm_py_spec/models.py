@@ -206,7 +206,7 @@ def setup_xspec_environment() -> None:
 def setup_model(model_str: str, rshift: float) -> Model:
     """Setup XSPEC model with initial parameters."""
     model = Model(model_str)
-    model.phabs.nH.values = 7e-3
+    model.phabs.nH.values = 1e-2
     model.phabs.nH.frozen = True
     model.zphabs.Redshift.values = rshift
     model.zpowerlw.Redshift.values = rshift
