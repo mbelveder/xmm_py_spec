@@ -57,3 +57,18 @@ def setup_logging(output_dir: Path, prefix: str = "") -> None:
     root_logger.addHandler(console_handler)
 
     logging.info(f"Log file created: {log_file}")
+
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger with the given name."""
+    return logging.getLogger(name)
+
+def setup_basic_logging():
+    """Configure basic logging for modules that don't need file output."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    # Set levels for noisy loggers
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('fontTools').setLevel(logging.WARNING)
