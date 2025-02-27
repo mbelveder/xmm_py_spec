@@ -3,6 +3,7 @@ import logging
 from typing import List
 import xspec
 from astropy.io import fits
+import argparse
 
 
 def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
@@ -78,10 +79,12 @@ def find_grouped_spectra(
 ) -> List[Path]:
     """Find one grouped spectrum per source directory."""
     base_path = Path(base_dir)
+    print(base_path)
     spectra = []
 
     # Process each source directory
     for src_dir in base_path.iterdir():
+        print(src_dir)
         if not src_dir.is_dir():
             continue
 
@@ -111,12 +114,23 @@ def analyze_spectra(base_dir: str = "data/downloaded_spectra") -> None:
 
 
 def main():
-    """Main entry point with basic logging configuration."""
+    """Command-line interface for spectral analysis."""
+    parser = argparse.ArgumentParser(
+        description="Analyze grouped XMM-Newton spectra"
+    )
+    parser.add_argument(
+        '--base-dir',
+        type=Path,
+        default=Path("data/downloaded_spectra"),
+        help="Base directory containing grouped spectra"
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    analyze_spectra()
+    analyze_spectra(str(args.base_dir))
 
 
 if __name__ == "__main__":
