@@ -13,11 +13,14 @@ combine_spectra:
 combine_spectra_group:
 		poetry run python -m xmm_py_spec.combine_spectra --group
 
-analyze_spectra:
+analyze_grouped_spectra:
 		poetry run python -m xmm_py_spec.analyze_spectra
 
 fit_observation:
 		poetry run python -m xmm_py_spec.fit_observation
+
+cluster_and_combine_spectra:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017 --group
 
 publish:
 		poetry publish --dry-run
