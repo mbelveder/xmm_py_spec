@@ -6,6 +6,7 @@ from astropy.io import fits
 from datetime import datetime
 import pandas as pd
 import os
+import traceback
 
 
 class ChangeDir:
@@ -63,33 +64,35 @@ def extract_title(spectrum_name):
 
 def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
     """Analyze all observations for a single source"""
-    logging.info(f"\nStarting analysis of source {source.source_id}")
-    logging.info(f"Found {len(source.observations)} observations")
+    logger = logging.getLogger(__name__)
+    logger.info(f"\nStarting analysis of source {source.source_id}")
+    logger.info(f"Found {len(source.observations)} observations")
 
     fit_results = []
 
     # Create plots directory with absolute path
     plots_dir = output_dir.resolve() / 'plots' / source.source_id
     plots_dir.mkdir(parents=True, exist_ok=True)
-    logging.info(f"Plot directory created: {plots_dir}")
+    logger.info(f"Plot directory created: {plots_dir}")
 
     for i, spectrum_path in enumerate(source.observations, 1):
-        logging.info(f"\nProcessing observation {i}/{len(source.observations)}")
-        logging.info(f"Spectrum path: {spectrum_path}")
+        logger.info(f"\nProcessing observation {i}/{len(source.observations)}")
+        logger.info(f"Spectrum path: {spectrum_path}")
 
         try:
             coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
                 spectrum_path
             )
-            logging.info(f"Observation details: {date_str} | {exp_str}")
+            logger.debug(f"Observation details: {date_str} | {exp_str}")
+            logger.debug(f"Coordinates: {coord_str}")
             title = f'{coord_str} | {exp_str} | {date_str}'
 
             # Extract obs_id and src_num from directory structure
             src_path = spectrum_path.parent.parent.parent
-            logging.info(f"src_path: {src_path}")
+            logger.info(f"src_path: {src_path}")
             plot_name = f"{src_path.name}.png"
             plot_path = plots_dir / plot_name
-            logging.info(f"Plot will be saved as: {plot_name} at {plot_path}")
+            logger.info(f"Plot will be saved as: {plot_name} at {plot_path}")
 
             with ChangeDir(spectrum_path.parent):
                 fit_result = mo2_fit_xmm(
@@ -105,17 +108,19 @@ def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
                 )
                 if fit_result is not None:
                     fit_results.append(fit_result)
-                    logging.info("Fit successful")
+                    logger.info("Fit successful")
                 else:
-                    logging.warning("Fit failed")
+                    logger.warning("Fit failed")
 
         except Exception as e:
-            logging.error(f"Error processing observation: {e}")
-            continue
+            logger.error(
+                f"Error processing observation:\n{traceback.format_exc()}"
+            )
+            return None
 
     n_success = len(fit_results)
-    logging.info(f"\nCompleted analysis of source {source.source_id}")
-    logging.info(
+    logger.info(f"\nCompleted analysis of source {source.source_id}")
+    logger.info(
         f"Successfully processed {n_success}/{len(source.observations)} "
         "observations"
     )

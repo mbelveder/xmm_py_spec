@@ -215,9 +215,10 @@ def setup_model(model_str: str, rshift: float) -> Model:
 
 def perform_steppar_scan() -> dict:
     """Perform 2D parameter scan and collect results."""
-    logging.info("Starting 2D parameter scan")
+    # Reduce logging to essential info only
+    logging.debug("Starting steppar scan")
     Fit.steppar('log 2 1e-1 10 100 nolog 4 -1 3 100')
-    logging.info("Steppar completed successfully")
+    logging.debug("Steppar completed")
 
     Plot.addCommand("image off")
     Plot("contour,,1,2.71")
@@ -298,9 +299,10 @@ def mo2_fit_xmm(
         model_str: str, title: str, plot_path: Path, date_obs, obs_id
 ) -> pd.Series:
     """Performs a fit for a single spectrum using a specified model."""
-    logging.info(f"\nFitting spectrum: {specname}")
-    logging.info(f"Model: {model_str}, redshift: {rshift}")
-    logging.info(f"Energy range: {en_lower}-{en_upper} keV")
+    logger = logging.getLogger(__name__)
+    logger.info(f"Fitting spectrum: {specname}")
+    # Remove redundant debug logs, keep only critical info
+    logger.debug(f"Parameters: model={model_str}, z={rshift}, E={en_lower}-{en_upper}keV")
 
     setup_xspec_environment()
 
