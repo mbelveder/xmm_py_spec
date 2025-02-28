@@ -114,7 +114,7 @@ def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
 
         except Exception as e:
             logger.error(
-                f"Error processing observation:\n{traceback.format_exc()}"
+                f"Error processing observation:\n{traceback.format_exc()}: {e}"
             )
             return None
 

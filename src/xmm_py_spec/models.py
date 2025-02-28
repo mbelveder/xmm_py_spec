@@ -302,7 +302,10 @@ def mo2_fit_xmm(
     logger = logging.getLogger(__name__)
     logger.info(f"Fitting spectrum: {specname}")
     # Remove redundant debug logs, keep only critical info
-    logger.debug(f"Parameters: model={model_str}, z={rshift}, E={en_lower}-{en_upper}keV")
+    logger.debug(
+        f"Parameters: model={model_str}, z={rshift}, "
+        f"E={en_lower}-{en_upper}keV"
+    )
 
     setup_xspec_environment()
 
