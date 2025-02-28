@@ -1,33 +1,53 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List
+from typing import List, Literal
+import logging
 
 
 @dataclass
 class Source:
+    """Class representing an XMM-Newton source."""
     source_id: str
     redshift: float
     base_path: Path
+    spec_type: Literal["individual", "clustered"] = "individual"
     observations: List[Path] = None
 
     def __post_init__(self):
-        self.source_path = self.base_path / self.source_id
-        self.observations = self._find_observations()
+        # For individual spectra, append source_id
+        # For clustered, use base_path as is since it already includes source_id
+        self.source_path = (
+            self.base_path / self.source_id if self.spec_type == "individual"
+            else self.base_path
+        )
+        self.observations = self.get_spectra()
 
-    def _find_observations(self) -> List[Path]:
-        """
-        Find all observation spectra for this source.
-        Looks for spectrum files in observation directories like:
-        source_id/0022740201_28/PPS/PN/spectrum.FTZ
-        """
-        # Pattern to find all observation directories
-        obs_pattern = "*/PPS/PN/*SRSPEC*.FTZ"
-        spectra = list(self.source_path.glob(obs_pattern))
+    def get_spectra(self) -> List[Path]:
+        """Get list of spectrum files based on type."""
+        logging.debug(
+            f"Searching for {self.spec_type} spectra in {self.source_path}"
+        )
+
+        if self.spec_type == "individual":
+            pattern = "*/PPS/PN/*SRSPEC*.FTZ"
+        else:
+            # Look for grouped spectra in cluster directories
+            pattern = "clusters/????_??/combined_spectrum_groupped.pha"
+
+        spectra = sorted(self.source_path.glob(pattern))
+        logging.debug(
+            f"Found {len(spectra)} spectra matching pattern '{pattern}'"
+        )
 
         if not spectra:
+            logging.debug("Directory structure:")
+            for p in sorted(self.source_path.rglob("*")):
+                logging.debug(
+                    f"  {'D' if p.is_dir() else 'F'} "
+                    f"{p.relative_to(self.source_path)}"
+                )
             raise FileNotFoundError(
-                "No spectra found for source "
-                f"{self.source_id} in {self.source_path}"
+                f"No {self.spec_type} spectra found in {self.source_path} "
+                f"using pattern '{pattern}'"
             )
-
-        return sorted(spectra)  # Sort to ensure consistent ordering
+        return spectra
