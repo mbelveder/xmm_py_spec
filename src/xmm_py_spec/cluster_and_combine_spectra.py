@@ -69,17 +69,23 @@ def _process_cluster_copying(
     current_cluster: Dict,
     spectra_dir: Path,
     output_dir: Path,
-    source_id: str
+    source_user_id: str
 ) -> None:
     """Process file copying for a cluster."""
-    if not (spectra_dir and output_dir and source_id):
+    if not (spectra_dir and output_dir and source_user_id):
+        logger.debug(
+            "Skipping file operations - missing required parameters: "
+            f"spectra_dir={bool(spectra_dir)}, "
+            f"output_dir={bool(output_dir)}, "
+            f"source_user_id={bool(source_user_id)}"
+        )
         return
 
     start_date = pd.to_datetime(
         current_cluster['observations'][0]['ons_start_date']
     )
     cluster_id = start_date.strftime('%Y_%m')
-    cluster_dir = output_dir / source_id / 'clusters' / cluster_id
+    cluster_dir = output_dir / source_user_id / 'clusters' / cluster_id
 
     current_cluster['cluster_dir'] = cluster_dir
     current_cluster['start_date'] = start_date
@@ -93,7 +99,7 @@ def _process_cluster_copying(
         obs_path_id = str(obs_id).rjust(10, '0')
         src_num = obs['src_num']
         source_dir = (
-            spectra_dir / f"{source_id}_5359" / f"{obs_path_id}_{src_num}"
+            spectra_dir / source_user_id / f"{obs_path_id}_{src_num}"
             / "PPS" / "PN"
         )
         logger.info(
@@ -143,7 +149,7 @@ def cluster_observations(
     gap_threshold: int,
     spectra_dir: Optional[Path] = None,
     output_dir: Optional[Path] = None,
-    source_id: Optional[str] = None
+    source_user_id: Optional[str] = None
 ) -> List[Dict]:
     """Group observations into clusters based on time gaps."""
     if obs_data.empty:
@@ -165,7 +171,7 @@ def cluster_observations(
 
         if new_cluster and current_cluster['observations']:
             _process_cluster_copying(
-                current_cluster, spectra_dir, output_dir, source_id
+                current_cluster, spectra_dir, output_dir, source_user_id
             )
             clusters.append(current_cluster)
             logger.info(
@@ -178,7 +184,7 @@ def cluster_observations(
     # Handle last cluster
     if current_cluster['observations']:
         _process_cluster_copying(
-            current_cluster, spectra_dir, output_dir, source_id
+            current_cluster, spectra_dir, output_dir, source_user_id
         )
         clusters.append(current_cluster)
         logger.info(
@@ -190,7 +196,7 @@ def cluster_observations(
     return clusters
 
 
-def load_observation_data(csv_path: Path, source_id: str) -> pd.DataFrame:
+def load_observation_data(csv_path: Path, source_user_id: str) -> pd.DataFrame:
     """Load and validate observation data from CSV."""
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
@@ -202,6 +208,7 @@ def load_observation_data(csv_path: Path, source_id: str) -> pd.DataFrame:
         raise ValueError(f"Missing required columns: {missing_cols}")
 
     if 'srcid' in obs_data.columns:
+        source_id = source_user_id.split('_')[0]
         obs_data = obs_data[obs_data['srcid'] == int(source_id)]
         if obs_data.empty:
             raise ValueError(
@@ -219,7 +226,7 @@ def load_observation_data(csv_path: Path, source_id: str) -> pd.DataFrame:
 
 
 def cluster(
-    source_id: str,
+    source_user_id: str,
     csv_path: Path,
     gap_threshold: int,
     spectra_dir: Optional[Path] = None,
@@ -229,7 +236,7 @@ def cluster(
     Cluster XMM-Newton observations based on their observation times.
 
     Args:
-        source_id: Source identifier
+        source_user_id: Source identifier
         csv_path: Path to CSV file containing observation data
         gap_threshold: Maximum days between observations in same cluster
         spectra_dir: Optional directory containing spectrum files
@@ -237,7 +244,7 @@ def cluster(
     """
 
     try:
-        obs_data = load_observation_data(csv_path, source_id)
+        obs_data = load_observation_data(csv_path, source_user_id)
 
         # Only attempt file operations if both paths are provided
         if bool(spectra_dir) != bool(output_dir):
@@ -252,7 +259,7 @@ def cluster(
             gap_threshold,
             spectra_dir=spectra_dir,
             output_dir=output_dir,
-            source_id=source_id
+            source_user_id=source_user_id
         )
 
         if not clusters:
@@ -269,7 +276,7 @@ def cluster(
 
     except Exception as e:
         logger.error(
-            f"Failed to cluster source {source_id}: {e}", exc_info=True
+            f"Failed to cluster source {source_user_id}: {e}", exc_info=True
         )
         raise
 
@@ -307,7 +314,7 @@ def _process_single_cluster(
 
 def combine_clustered(
     clusters: List[Dict],
-    source_id: str,
+    source_user_id: str,
     group: bool = False
 ) -> Dict[str, Path]:
     """Combine clustered observations using epicspeccombine."""
@@ -333,14 +340,14 @@ def combine_clustered(
 
     except Exception as e:
         logger.error(
-            f"Failed to combine clusters for {source_id}: {e}",
+            f"Failed to combine clusters for {source_user_id}: {e}",
             exc_info=True
         )
         raise
 
 
 def cluster_and_combine_spectra(
-    source_id: str,
+    source_user_id: str,
     csv_path: Path,
     spectra_dir: Path,
     output_dir: Path,
@@ -348,12 +355,12 @@ def cluster_and_combine_spectra(
     group: bool = False
 ) -> Dict[str, Path]:
     """Main function that orchestrates clustering and combination."""
-    logger.info(f"Starting processing for source {source_id}")
+    logger.info(f"Starting processing for source {source_user_id}")
     logger.debug(f"Parameters: gap_threshold={gap_threshold}, group={group}")
 
     try:
         clusters = cluster(
-            source_id=source_id,
+            source_user_id=source_user_id,
             csv_path=csv_path,
             gap_threshold=gap_threshold,
             spectra_dir=spectra_dir,
@@ -362,7 +369,7 @@ def cluster_and_combine_spectra(
         if not clusters:
             return {}
 
-        combined = combine_clustered(clusters, source_id, group)
+        combined = combine_clustered(clusters, source_user_id, group)
 
         if not combined:
             logger.warning("No spectra were successfully combined")
@@ -370,7 +377,7 @@ def cluster_and_combine_spectra(
         return combined
 
     except Exception as e:
-        logger.error(f"Failed to process source {source_id}: {e}")
+        logger.error(f"Failed to process source {source_user_id}: {e}")
         raise
 
 
@@ -380,7 +387,7 @@ def main():
         description="Cluster and combine XMM-Newton observations by time"
     )
     parser.add_argument(
-        'source_id',
+        'source_user_id',
         help="Source identifier"
     )
     parser.add_argument(
@@ -422,20 +429,20 @@ def main():
 
     try:
         clusters = cluster(
-            source_id=args.source_id,
+            source_user_id=args.source_user_id,
             csv_path=args.csv_path,
             gap_threshold=args.gap_threshold,
             spectra_dir=args.spectra_dir,
             output_dir=args.output_dir
         )
         logger.info(
-            f"Created {len(clusters)} clusters for source {args.source_id}"
+            f"Created {len(clusters)} clusters for source {args.source_user_id}"
         )
 
         if not args.cluster_only:
             combined = combine_clustered(
                 clusters=clusters,
-                source_id=args.source_id,
+                source_user_id=args.source_user_id,
                 group=args.group
             )
             logger.info(
