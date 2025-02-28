@@ -90,8 +90,22 @@ def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
             # Extract obs_id and src_num from directory structure
             src_path = spectrum_path.parent.parent.parent
             logger.info(f"src_path: {src_path}")
-            plot_name = f"{src_path.name}.png"
+            # For individual spectra, use obsid_srcnum
+            if 'SRSPEC' in spectrum_path.name:
+                obs_path = spectrum_path.parent.parent.parent.parent
+                plot_name = (
+                    f"source_{src_path.name}_obs_{obs_path.name}_fit.png"
+                )
+            else:
+                # For clustered spectra, use cluster date
+                cluster_date = spectrum_path.parent.name  # Gets YYYY_MM
+                plot_name = (
+                    f"source_{src_path.name}_cluster_{cluster_date}_fit.png"
+                )
+
             plot_path = plots_dir / plot_name
+            # plot_name = f"{src_path.name}.png"
+            # plot_path = plots_dir / plot_name
             logger.info(f"Plot will be saved as: {plot_name} at {plot_path}")
 
             with ChangeDir(spectrum_path.parent):
