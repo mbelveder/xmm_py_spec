@@ -20,7 +20,7 @@ fit_observation:
 		poetry run python -m xmm_py_spec.fit_observation
 
 cluster_and_combine_spectra:
-		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017 --group
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --group
 
 publish:
 		poetry publish --dry-run
