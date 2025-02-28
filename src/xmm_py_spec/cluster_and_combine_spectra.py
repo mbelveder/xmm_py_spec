@@ -10,7 +10,7 @@ The process consists of two main steps:
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import shutil
 from .combine_spectra import combine_source_spectra, find_spectral_files
@@ -93,7 +93,8 @@ def _process_cluster_copying(
         obs_path_id = str(obs_id).rjust(10, '0')
         src_num = obs['src_num']
         source_dir = (
-            spectra_dir / f"{source_id}_5359" / f"{obs_path_id}_{src_num}" / "PPS" / "PN"
+            spectra_dir / f"{source_id}_5359" / f"{obs_path_id}_{src_num}"
+            / "PPS" / "PN"
         )
         logger.info(
             f"Checking source directory: {source_dir} "
@@ -107,6 +108,117 @@ def _process_cluster_copying(
             logger.warning(f"Source directory not found: {source_dir}")
 
 
+# def cluster_observations(
+#     obs_data: pd.DataFrame,
+#     gap_threshold: int,
+#     spectra_dir: Optional[Path] = None,
+#     output_dir: Optional[Path] = None,
+#     source_id: Optional[str] = None
+# ) -> List[Dict]:
+#     """Group observations into clusters based on time gaps."""
+#     # Validate input data
+#     if obs_data.empty:
+#         raise ValueError("Empty observation data provided")
+#     if 'ons_start_date' not in obs_data.columns:
+#         raise ValueError("Missing required column: ons_start_date")
+
+#     # Sort data by date to ensure proper clustering
+#     obs_data = obs_data.sort_values(by='ons_start_date').copy()
+
+#     logger.info("Starting observation clustering")
+#     logger.info(f"Initial dataframe shape: {obs_data.shape}")
+#     logger.info("\nObservation dates:")
+#     for _, row in obs_data.iterrows():
+#         logger.info(
+#             f"Date: {row['ons_start_date']} | "
+#             f"ObsID: {row['obs_id']} | "
+#             f"SrcNum: {row['src_num']}"
+#         )
+
+#     clusters = []
+#     current_cluster = {
+#         'observations': [],
+#         'start_date': None,
+#         'end_date': None,
+#         'cluster_dir': None,
+#         'copied_files': {}
+#     }
+#     last_date = None
+
+#     for _, row in obs_data.iterrows():
+#         logger.debug(
+#             f"Processing row with date {row['ons_start_date']}, "
+#             f"last_date={last_date}"
+#         )
+#         if last_date is None:
+#             current_cluster['observations'].append(row.to_dict())
+#         # TODO: might be optimized somehow
+#         elif (row['ons_start_date'] - last_date).days <= gap_threshold:
+#             current_cluster['observations'].append(row.to_dict())
+#         else:
+#             if current_cluster['observations']:
+#                 _process_cluster_copying(
+#                     current_cluster, spectra_dir, output_dir, source_id
+#                 )
+#                 clusters.append(current_cluster)
+#                 logger.info(
+#                     f"Formed cluster with "
+#                     f"{len(current_cluster['observations'])} observations"
+#                 )
+#             current_cluster = {
+#                 'observations': [row.to_dict()],
+#                 'start_date': None,
+#                 'end_date': None,
+#                 'cluster_dir': None,
+#                 'copied_files': {}
+#             }
+#         last_date = row['ons_start_date']
+
+#     if current_cluster['observations']:
+#         _process_cluster_copying(
+#             current_cluster, spectra_dir, output_dir, source_id
+#         )
+#         clusters.append(current_cluster)
+#         logger.info(
+#             f"Formed cluster with {len(current_cluster['observations'])} "
+#             "observations"
+#         )
+
+#     logger.debug(
+#         f"Created {len(clusters)} clusters with {gap_threshold} day threshold"
+#     )
+#     return clusters
+
+def _init_cluster() -> Dict:
+    """Initialize an empty cluster structure."""
+    return {
+        'observations': [],
+        'start_date': None,
+        'end_date': None,
+        'cluster_dir': None,
+        'copied_files': {}
+    }
+
+
+def _process_observation(
+    row: pd.Series,
+    current_cluster: Dict,
+    last_date: pd.Timestamp,
+    gap_threshold: int
+) -> Tuple[Dict, pd.Timestamp, bool]:
+    """Process a single observation and update cluster state."""
+    new_cluster_needed = False
+
+    if last_date is None:
+        current_cluster['observations'].append(row.to_dict())
+    elif (row['ons_start_date'] - last_date).days <= gap_threshold:
+        current_cluster['observations'].append(row.to_dict())
+    else:
+        new_cluster_needed = True
+
+    return current_cluster, row['ons_start_date'], new_cluster_needed
+
+
 def cluster_observations(
     obs_data: pd.DataFrame,
     gap_threshold: int,
@@ -115,75 +227,47 @@ def cluster_observations(
     source_id: Optional[str] = None
 ) -> List[Dict]:
     """Group observations into clusters based on time gaps."""
-    # Validate input data
     if obs_data.empty:
         raise ValueError("Empty observation data provided")
     if 'ons_start_date' not in obs_data.columns:
         raise ValueError("Missing required column: ons_start_date")
 
-    # Sort data by date to ensure proper clustering
     obs_data = obs_data.sort_values(by='ons_start_date').copy()
-
-    logger.info("Starting observation clustering")
-    logger.info(f"Initial dataframe shape: {obs_data.shape}")
-    logger.info("\nObservation dates:")
-    for _, row in obs_data.iterrows():
-        logger.info(
-            f"Date: {row['ons_start_date']} | "
-            f"ObsID: {row['obs_id']} | "
-            f"SrcNum: {row['src_num']}"
-        )
+    logger.info(f"Processing {len(obs_data)} observations")
 
     clusters = []
-    current_cluster = {
-        'observations': [],
-        'start_date': None,
-        'end_date': None,
-        'cluster_dir': None,
-        'copied_files': {}
-    }
+    current_cluster = _init_cluster()
     last_date = None
 
     for _, row in obs_data.iterrows():
-        logger.debug(
-            f"Processing row with date {row['ons_start_date']}, "
-            f"last_date={last_date}"
+        current_cluster, last_date, new_cluster = _process_observation(
+            row, current_cluster, last_date, gap_threshold
         )
-        days_since_last_observation = (row['ons_start_date'] - last_date).days
-        if last_date is None or days_since_last_observation <= gap_threshold:
-            current_cluster['observations'].append(row.to_dict())
-        else:
-            if current_cluster['observations']:
-                _process_cluster_copying(
-                    current_cluster, spectra_dir, output_dir, source_id
-                )
-                clusters.append(current_cluster)
-                logger.info(
-                    f"Formed cluster with "
-                    f"{len(current_cluster['observations'])} observations"
-                )
-            current_cluster = {
-                'observations': [row.to_dict()],
-                'start_date': None,
-                'end_date': None,
-                'cluster_dir': None,
-                'copied_files': {}
-            }
-        last_date = row['ons_start_date']
 
+        if new_cluster and current_cluster['observations']:
+            _process_cluster_copying(
+                current_cluster, spectra_dir, output_dir, source_id
+            )
+            clusters.append(current_cluster)
+            logger.info(
+                f"Formed cluster with {len(current_cluster['observations'])} "
+                "observations"
+            )
+            current_cluster = _init_cluster()
+            current_cluster['observations'].append(row.to_dict())
+
+    # Handle last cluster
     if current_cluster['observations']:
         _process_cluster_copying(
             current_cluster, spectra_dir, output_dir, source_id
         )
         clusters.append(current_cluster)
         logger.info(
-            f"Formed cluster with {len(current_cluster['observations'])} "
-            "observations"
+            f"Formed final cluster with "
+            f"{len(current_cluster['observations'])} observations"
         )
 
-    logger.debug(
-        f"Created {len(clusters)} clusters with {gap_threshold} day threshold"
-    )
+    logger.info(f"Created {len(clusters)} clusters")
     return clusters
 
 
@@ -271,6 +355,37 @@ def cluster(
         raise
 
 
+def _process_single_cluster(
+    cluster: Dict,
+    index: int,
+    total: int,
+    group: bool
+) -> Optional[Tuple[str, Path]]:
+    """Process a single cluster and return its combined spectrum path."""
+    if not cluster.get('cluster_dir') or not cluster.get('start_date'):
+        logger.warning(f"Skipping cluster {index} - missing required data")
+        return None
+
+    logger.info(
+        f"Processing cluster {index}/{total} from {cluster['start_date']}"
+    )
+
+    spec_files = find_spectral_files(cluster['cluster_dir'])
+    if not spec_files:
+        logger.warning(f"No complete spectral sets in cluster {index}")
+        return None
+
+    if not combine_source_spectra(cluster['cluster_dir'], spec_files, group):
+        logger.error(f"Failed to combine cluster {index}")
+        return None
+
+    cluster_id = cluster['start_date'].strftime('%Y_%m')
+    combined_path = cluster['cluster_dir'] / "combined_spectrum.ds"
+    logger.info(f"Successfully combined cluster {index}")
+
+    return cluster_id, combined_path
+
+
 def combine_clustered(
     clusters: List[Dict],
     source_id: str,
@@ -285,30 +400,11 @@ def combine_clustered(
 
     try:
         for i, cluster in enumerate(clusters, 1):
-            if not cluster.get('cluster_dir') or not cluster.get('start_date'):
-                logger.warning(f"Skipping cluster {i} - missing required data")
-                continue
-
-            logger.info(
-                f"Processing cluster {i}/{len(clusters)} "
-                f"from {cluster['start_date']}"
-            )
-
-            spec_files = find_spectral_files(cluster['cluster_dir'])
-            if not spec_files:
-                logger.warning(f"No complete spectral sets in cluster {i}")
-                continue
-
-            if combine_source_spectra(
-                cluster['cluster_dir'], spec_files, group
-            ):
-                cluster_id = cluster['start_date'].strftime('%Y_%m')
-                combined_spectra[cluster_id] = (
-                    cluster['cluster_dir'] / "combined_spectrum.ds"
-                )
-                logger.info(f"Successfully combined cluster {i}")
+            result = _process_single_cluster(cluster, i, len(clusters), group)
+            if result:
+                cluster_id, path = result
+                combined_spectra[cluster_id] = path
             else:
-                logger.error(f"Failed to combine cluster {i}")
                 failed_clusters.append(f"Cluster {i}")
 
         if failed_clusters:
@@ -318,7 +414,8 @@ def combine_clustered(
 
     except Exception as e:
         logger.error(
-            f"Failed to combine clusters for {source_id}: {e}", exc_info=True
+            f"Failed to combine clusters for {source_id}: {e}",
+            exc_info=True
         )
         raise
 
