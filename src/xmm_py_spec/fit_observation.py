@@ -1,40 +1,144 @@
 import yaml
 from pathlib import Path
+from typing import Literal
 from .analyze_spectral_variability import analyze_source
 from .source import Source
 from .logging_config import setup_logging
 import logging
+from .analyze_spectra import fix_spectrum_paths_inplace
+import pandas as pd
+from typing import Optional
+
+
+def _get_spectra_path(source_id: str, spec_type: str, base_dir: Path) -> Path:
+    """Get the path to spectra directory."""
+    if spec_type == "individual":
+        spec_dir = "downloaded_spectra"
+    else:
+        spec_dir = "clustered_spectra"
+    return base_dir / spec_dir / source_id
+
+
+def _verify_spectrum_files(spectrum: Path) -> bool:
+    """Verify that all required files exist for a spectrum."""
+    required_files = [
+        'combined_spectrum.ds',
+        'combined_background.ds',
+        'combined_response.rmf'
+    ]
+    missing = [f for f in required_files if not (spectrum.parent / f).exists()]
+    if missing:
+        logging.error(f"Missing required files for {spectrum}: {missing}")
+        return False
+    return True
+
+
+def _fix_spectrum_paths(spectrum: Path) -> bool:
+    """Fix paths in spectrum file."""
+    try:
+        fix_spectrum_paths_inplace(spectrum, make_relative=True, debug=True)
+        logging.info(f"Successfully fixed paths for {spectrum}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to fix paths in {spectrum}: {e}")
+        return False
+
+
+def _process_spectra(source: Source, base_dir: Path) -> Optional[pd.DataFrame]:
+    """Process all spectra for a source."""
+    try:
+        results_df = analyze_source(source, base_dir)
+        if results_df.empty:
+            logging.warning("No results obtained from analysis")
+            return None
+        return results_df
+    except Exception as e:
+        logging.error(f"Failed to analyze spectra: {e}")
+        logging.debug("Traceback:", exc_info=True)
+        return None
+
+
+def analyze_source_spectra(
+    source_id: str,
+    params: dict,
+    spec_type: Literal["individual", "clustered"],
+    base_dir: Path
+) -> None:
+    """Analyze individual or clustered spectra for a source."""
+    spec_path = _get_spectra_path(source_id, spec_type, base_dir)
+    if not spec_path.exists():
+        logging.warning(
+            f"No {spec_type} spectra directory found at {spec_path}"
+        )
+        return
+
+    source = Source(
+        source_id=source_id,
+        redshift=params["redshift"],
+        base_path=spec_path,
+        spec_type=spec_type
+    )
+
+    # Process spectra files
+    for spectrum in source.observations:
+        files_verified = _verify_spectrum_files(spectrum)
+        paths_fixed = _fix_spectrum_paths(spectrum)
+        if not files_verified or not paths_fixed:
+            continue
+
+    # Analyze and save results
+    results_df = _process_spectra(source, base_dir)
+    if results_df is not None:
+        output_file = base_dir / f"source_{source_id}_{spec_type}_results.csv"
+        results_df.to_csv(output_file, index=None)
+        logging.info(f"Results saved to: {output_file}")
 
 
 def main():
-    base_path = Path("data/downloaded_spectra")
-    output_path = Path("data/")
-    log_dir = output_path / "logs"
+    """Main entry point with CLI arguments."""
+    import argparse
 
-    # Setup logging before any operations
+    parser = argparse.ArgumentParser(
+        description="Analyze XMM-Newton spectral data"
+    )
+    parser.add_argument(
+        "--source",
+        help="Source ID to process (default: all sources)"
+    )
+    parser.add_argument(
+        "--type",
+        choices=["individual", "clustered", "both"],
+        default="both",
+        help="Type of spectra to analyze"
+    )
+    args = parser.parse_args()
+
+    base_dir = Path("data")
+    log_dir = base_dir / "logs"
     setup_logging(log_dir, "fit_observation_")
 
     with open("config/sources.yaml") as f:
         config = yaml.safe_load(f)
 
-    for source_id, params in config["sources"].items():
+    if args.source:
+        if args.source not in config["sources"]:
+            logging.error(f"Source {args.source} not found in config")
+            return
+        sources = {args.source: config["sources"][args.source]}
+    else:
+        sources = config["sources"]
+
+    spec_types = (
+        ["individual", "clustered"] if args.type == "both"
+        else [args.type]
+    )
+
+    for source_id, params in sources.items():
         logging.info(f"\nProcessing source: {source_id}")
-        logging.info(f"Parameters: {params}")
-
-        source = Source(
-            source_id=source_id,
-            redshift=params["redshift"],
-            base_path=base_path
-        )
-
-        try:
-            results_df = analyze_source(source, output_path)
-            output_file = output_path / f"source_{source_id}_results.csv"
-            results_df.to_csv(output_file, index=None)
-            logging.info(f"Results saved to: {output_file}")
-        except Exception as e:
-            logging.error(f"Failed to analyze source {source_id}: {e}")
-            logging.debug("Traceback:", exc_info=True)
+        for spec_type in spec_types:
+            analyze_source_spectra(
+                source_id, params, spec_type, base_dir
+            )
 
 
 if __name__ == "__main__":
