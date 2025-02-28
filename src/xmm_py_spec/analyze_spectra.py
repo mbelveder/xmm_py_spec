@@ -6,18 +6,45 @@ from astropy.io import fits
 import argparse
 
 
-def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
-    """Update FITS header keywords to use local paths."""
+def fix_spectrum_paths_inplace(
+    spectrum_file: Path,
+    make_relative: bool = True,
+    debug: bool = False
+) -> None:
+    """Update FITS header keywords to use correct paths.
+
+    Args:
+        spectrum_file: Path to the spectrum file
+        make_relative: If True, use paths relative to spectrum location
+        debug: Print debug info about path changes
+    """
+    if debug:
+        logging.debug(f"Fixing paths in spectrum file: {spectrum_file}")
+        logging.debug(f"Spectrum parent dir: {spectrum_file.parent}")
+
     with fits.open(spectrum_file, mode='update') as hdul:
         for hdu in hdul:
             for key in ['BACKFILE', 'RESPFILE', 'ANCRFILE']:
                 if key in hdu.header:
                     old_path = hdu.header[key]
-                    if old_path.startswith('/app/data/'):
-                        new_path = str(
-                            spectrum_file.parent / Path(old_path).name
-                        )
-                        hdu.header[key] = new_path
+                    if debug:
+                        logging.debug(f"Original {key}: {old_path}")
+
+                    # Always convert to local path relative to spectrum location
+                    new_path = str(spectrum_file.parent / Path(old_path).name)
+
+                    if make_relative:
+                        new_path = Path(old_path).name
+
+                    if debug:
+                        logging.debug(f"New {key}: {new_path}")
+                        # Verify file exists
+                        check_path = spectrum_file.parent / Path(new_path)
+                        logging.debug(f"Checking existence of: {check_path}")
+                        logging.debug(f"File exists: {check_path.exists()}")
+
+                    hdu.header[key] = new_path
+
         hdul.flush()
 
 
