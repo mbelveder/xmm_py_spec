@@ -188,7 +188,9 @@ def extract_errors_from_2d_contour(
 
     if plot_savepath:
         os.makedirs(os.path.dirname(plot_savepath), exist_ok=True)
-        fig.savefig(plot_savepath, dpi=300, bbox_inches='tight')
+        fig.savefig(
+            plot_savepath, dpi=300, bbox_inches='tight', transparent=True
+        )
 
     return series
 
@@ -290,7 +292,7 @@ def plot_contours(
     ax.set_ylim(0.3, 2.5)
 
     fig.suptitle(title, fontsize=12, y=.95)
-    fig.savefig(plot_path, bbox_inches='tight', dpi=200)
+    fig.savefig(plot_path, bbox_inches='tight', dpi=300, transparent=True)
     plt.close(fig)
 
 
