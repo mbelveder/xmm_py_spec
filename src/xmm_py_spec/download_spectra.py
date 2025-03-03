@@ -1,11 +1,61 @@
 """
-Downloads and organizes spectral data using astroquery's XMMNewton interface.
+XMM-Newton Spectral Data Download Module
+
+This module handles the download and organization of XMM-Newton spectral data
+using astroquery's XMMNewton interface. It provides functionality to:
+
+1. Download spectral data for multiple observations
+2. Organize files into a consistent directory structure
+3. Validate downloads and handle network errors
+4. Track download status and maintain logs
+
+Directory Structure:
+    base_dir/
+    └── source_id_[user_id]/
+        ├── download.log
+        └── obs_id_src_num/
+            └── PPS/
+                └── PN/
+                    ├── *SRSPEC*.FTZ  (source spectrum)
+                    ├── *BGSPEC*.FTZ  (background spectrum)
+                    ├── *.rmf         (response matrix)
+                    └── *SRCARF*.FTZ  (ancillary response)
+
+Required Input Format:
+    The observation table must be a list of dictionaries with:
+    - 'srcid': Source identifier
+    - 'obs_id': XMM-Newton observation ID
+    - 'src_num': Source number within observation
+    - 'user_srcid' (optional): User-defined source identifier
+
+Usage Examples:
+
+    Basic usage:
+    >>> obs_table = [
+    ...     {'srcid': '123', 'obs_id': '0001', 'src_num': 1},
+    ...     {'srcid': '123', 'obs_id': '0002', 'src_num': 1}
+    ... ]
+    >>> download_spectra(obs_table, base_dir='data/spectra')
+
+    Command line:
+    $ python -m xmm_py_spec.download_spectra data/obs_list.csv \
+        --base-dir data/spectra
+
+Error Handling:
+    - Network errors trigger automatic retries with exponential backoff
+    - Missing or incomplete downloads are logged
+    - Download status is tracked in CSV and human-readable logs
+
+Logging:
+    - Per-source logs in download.log
+    - Global metadata in download_meta.csv and download_meta.log
+    - Download validation results appended to logs
 """
 
 from astroquery.esa.xmm_newton import XMMNewton
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Literal, Union
 import shutil
 from .utils import load_source_list
 import argparse
@@ -21,7 +71,14 @@ import json
 import pandas as pd
 
 LEVEL = "PPS"
-INSTNAME = "PN"
+# Update instrument handling
+InstrumentType = Literal["PN", "M1", "M2"]
+INSTRUMENTS: Dict[InstrumentType, str] = {
+    "PN": "PN",
+    "M1": "M1",
+    "M2": "M2"
+}
+DEFAULT_INSTRUMENT = "PN"
 
 # Network-related errors that should trigger retry logic
 NETWORK_ERRORS = (
@@ -30,6 +87,13 @@ NETWORK_ERRORS = (
     URLError,
     ConnectionError
 )
+
+
+def validate_instrument(instrument: str) -> InstrumentType:
+    """Validate and normalize instrument name."""
+    if instrument.upper() in INSTRUMENTS:
+        return instrument.upper()  # type: InstrumentType
+    raise ValueError(f"Invalid instrument: {instrument}. Must be one of {list(INSTRUMENTS.keys())}")
 
 
 def get_source_dir(base_dir: str, srcid: str, obs_data: Dict) -> Path:
@@ -113,16 +177,33 @@ def retry_on_network_error(max_retries=3, initial_delay=1):
 
 
 @retry_on_network_error()
-def download_xmm_data(obs_id: str, src_num: int) -> Path:
-    """Download XMM data using astroquery."""
-    tar_file = Path(f'{obs_id}.tar')
+def download_xmm_data(
+    obs_id: str,
+    src_num: int,
+    instrument: InstrumentType = DEFAULT_INSTRUMENT
+) -> Path:
+    """Download XMM data for a specific observation and source.
+
+    Args:
+        obs_id: XMM-Newton observation ID
+        src_num: Source number within observation
+        instrument: Instrument name (PN, M1, or M2)
+
+    Returns:
+        Path to downloaded tar file
+
+    Raises:
+        Network errors are automatically retried
+        Other errors propagate to caller
+    """
+    tar_file = Path(f'{obs_id}_{instrument}.tar')
     XMMNewton.download_data(
         obs_id,
         level=LEVEL,
         extension="FTZ,PNG,PDF",
-        instname=INSTNAME,
+        instname=INSTRUMENTS[instrument],
         sourceno=f'{src_num:04X}',
-        filename=obs_id
+        filename=f"{obs_id}_{instrument}"
     )
     return tar_file
 
@@ -137,30 +218,37 @@ def organize_files(output_dir: Path) -> None:
 
 
 def reorganize_extracted_files(
-        base_path: Path, obs_id: str, cleanup: bool = True
+    base_path: Path,
+    obs_id: str,
+    instrument: InstrumentType = DEFAULT_INSTRUMENT,
+    cleanup: bool = True
 ) -> None:
-    """
-    Copy files from astroquery's structure to our directory structure.
-    Optionally preserve original files for debugging.
-
-    Args:
-        base_path: Base directory path
-        obs_id: Observation ID
-        cleanup: Whether to remove source files after copying (default: True)
-    """
+    """Copy files from astroquery's structure to our directory structure."""
     source_dir = base_path / obs_id / "pps"
     if not source_dir.exists():
         return
 
-    target_dir = base_path / LEVEL / INSTNAME
+    target_dir = base_path / LEVEL / instrument
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy all files, preserving original structure
-    for file_path in source_dir.glob('*'):
+    # Map instrument names to their file patterns
+    inst_patterns = {
+        "PN": "*PN*",  # PN patterns
+        "M1": "*M1*",  # MOS1 patterns
+        "M2": "*M2*"   # MOS2 patterns
+    }
+    
+    # Copy instrument-specific files
+    pattern = inst_patterns[instrument]
+    for file_path in source_dir.glob(pattern):
+        target_path = target_dir / file_path.name
+        shutil.copy2(str(file_path), str(target_path))
+        
+    # Copy common files (RMFs, etc.)
+    for file_path in source_dir.glob("*.rmf"):
         target_path = target_dir / file_path.name
         shutil.copy2(str(file_path), str(target_path))
 
-    # Optionally cleanup source directory
     if cleanup and source_dir.exists():
         shutil.rmtree(source_dir.parent)
 
@@ -235,19 +323,19 @@ def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
         print(f"Warning: Failed to update meta logs: {e}")
 
 
-def validate_download_files(dir_path: Path) -> Dict[str, bool]:
-    """Validate presence of required spectral files.
-
-    Returns:
-        Dict with file types and their presence status
-    """
+def validate_download_files(
+    dir_path: Path,
+    instrument: InstrumentType = DEFAULT_INSTRUMENT
+) -> Dict[str, bool]:
+    """Validate presence of required spectral files."""
+    inst_suffix = instrument
     required_patterns = {
-        'spectrum': '*SRSPEC*.FTZ',
-        'background': '*BGSPEC*.FTZ',
-        'arf': '*SRCARF*.FTZ',
-        'rmf': '*.rmf'
+        'spectrum': f'*{inst_suffix}*SRSPEC*.FTZ',
+        'background': f'*{inst_suffix}*BGSPEC*.FTZ',
+        'arf': f'*{inst_suffix}*ARF*.FTZ',
+        'rmf': f'*.rmf'
     }
-
+    
     validation = {}
     for file_type, pattern in required_patterns.items():
         files = list(dir_path.glob(pattern))
@@ -258,16 +346,23 @@ def validate_download_files(dir_path: Path) -> Dict[str, bool]:
 
 def download_observation(
     srcid: str, obs_id: str, src_num: int, base_dir: str,
-    obs_data: Dict = None, cleanup: bool = True
+    obs_data: Dict = None, instruments: List[InstrumentType] = None,
+    cleanup: bool = True
 ) -> bool:
     """Download and organize data for a single XMM-Newton observation."""
+    instruments = instruments or [DEFAULT_INSTRUMENT]
     output_dir, obs_id = prepare_download(
         srcid, obs_id, src_num, base_dir, obs_data
     )
 
     if output_dir.exists():
-        # Only skip if directory has content, retry if empty
-        if not is_directory_empty(output_dir):
+        # Check each instrument directory
+        all_empty = all(
+            is_directory_empty(output_dir / LEVEL / inst)
+            for inst in instruments
+            if (output_dir / LEVEL / inst).exists()
+        )
+        if not all_empty:
             status = "SKIPPED_EXISTS"
             log_download_status(
                 srcid, obs_id, src_num, base_dir, status, obs_data
@@ -277,55 +372,61 @@ def download_observation(
                 f"Skipping {obs_id}_{src_num} - directory exists with files\n"
             )
             return True
-        else:
-            status = "RETRY_EMPTY_DIR"
+
+    success = True
+    for instrument in instruments:
+        try:
+            tar_file = download_xmm_data(obs_id, src_num, instrument)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Extract all files first
+            XMMNewton.get_epic_spectra(
+                tar_file,
+                source_number=src_num,
+                verbose=False,
+                path=output_dir,
+                instrument=[INSTRUMENTS[instrument]]
+            )
+            extract_all_files(tar_file, output_dir)
+            
+            # Allow time for file system operations
+            reorganize_extracted_files(
+                output_dir, obs_id, instrument=instrument, cleanup=cleanup
+            )
+            tar_file.unlink(missing_ok=True)
+
+            # Add small delay before validation to ensure files are settled
+            import time
+            time.sleep(1)
+            
+            # Now validate
+            validation = validate_download_files(
+                output_dir / LEVEL / instrument,
+                instrument=instrument
+            )
+            if all(validation.values()):
+                status = f"SUCCESS ({instrument})"
+            else:
+                missing = [k for k, v in validation.items() if not v]
+                status = f"INCOMPLETE ({instrument}): Missing {', '.join(missing)}"
+
+            log_download_status(srcid, obs_id, src_num, base_dir, status, obs_data)
+            update_meta_log(obs_data, status, base_dir)
+            
+        except Exception as e:
+            success = False
+            status = f"ERROR ({instrument}): {str(e)}"
             log_download_status(
                 srcid, obs_id, src_num, base_dir, status, obs_data
             )
             update_meta_log(obs_data, status, base_dir)
-            print(f"Retrying {obs_id}_{src_num} - directory exists but empty\n")
+            print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
 
-    try:
-        tar_file = download_xmm_data(obs_id, src_num)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # First extract spectral files using XMMNewton utility
-        XMMNewton.get_epic_spectra(
-            tar_file, source_number=src_num, verbose=False, path=output_dir
-        )
-        print('\n')
-
-        # Then extract remaining files
-        extract_all_files(tar_file, output_dir)
-
-        reorganize_extracted_files(output_dir, obs_id, cleanup=cleanup)
-
-        tar_file.unlink(missing_ok=True)
-
-        # Validate downloaded files
-        validation = validate_download_files(output_dir / LEVEL / INSTNAME)
-        if all(validation.values()):
-            status = "SUCCESS"
-        else:
-            missing = [k for k, v in validation.items() if not v]
-            status = f"INCOMPLETE: Missing {', '.join(missing)}"
-
-        log_download_status(srcid, obs_id, src_num, base_dir, status, obs_data)
-        update_meta_log(obs_data, status, base_dir)
-        return True
-
-    except Exception as e:
-        status = f"ERROR: {str(e)}"
-        log_download_status(
-            srcid, obs_id, src_num, base_dir, status, obs_data
-        )
-        update_meta_log(obs_data, status, base_dir)
-        print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
-        return False
+    return success
 
 
 def process_downloads(
-        obs_table: List[Dict], base_dir: str, cleanup: bool = True
+        obs_table: List[Dict], base_dir: str, instruments: List[InstrumentType], cleanup: bool = True
 ) -> None:
     """Process all downloads from the observation table."""
     for obs in obs_table:
@@ -335,6 +436,7 @@ def process_downloads(
             int(obs['src_num']),
             base_dir,
             obs,
+            instruments=instruments,
             cleanup=cleanup
         )
 
@@ -353,7 +455,7 @@ def find_incomplete_downloads(base_path: Path) -> List[str]:
     """Find and return list of incomplete downloads."""
     incomplete = []
 
-    for pps_dir in base_path.glob(f"**/{LEVEL}/{INSTNAME}/"):
+    for pps_dir in base_path.glob(f"**/{LEVEL}/{DEFAULT_INSTRUMENT}/"):
         validation = validate_download_files(pps_dir)
         if not all(validation.values()):
             missing = [k for k, v in validation.items() if not v]
@@ -391,6 +493,7 @@ def validate_all_downloads(base_dir: str) -> None:
 def download_spectra(
     obs_table: List[Dict],
     base_dir: str = "data/downloaded_spectra",
+    instruments: List[InstrumentType] = None,
     cleanup: bool = True
 ) -> None:
     """Download spectral data for multiple XMM-Newton observations."""
@@ -416,7 +519,7 @@ def download_spectra(
             clear_log_file(obs['srcid'], base_dir, obs)
 
     try:
-        process_downloads(obs_table, base_dir, cleanup=cleanup)
+        process_downloads(obs_table, base_dir, instruments=instruments, cleanup=cleanup)
         validate_all_downloads(base_dir)  # Add final validation
     except Exception as e:
         print(f"Download failed: {str(e)}")
@@ -440,6 +543,13 @@ def main():
         action='store_true',
         help="Keep original astroquery files (useful for debugging)"
     )
+    parser.add_argument(
+        '--instruments',
+        nargs='+',
+        choices=list(INSTRUMENTS.keys()),
+        default=[DEFAULT_INSTRUMENT],
+        help="Instruments to download (default: PN)"
+    )
 
     args = parser.parse_args()
 
@@ -449,6 +559,7 @@ def main():
         download_spectra(
             obs_table,
             base_dir=args.base_dir,
+            instruments=args.instruments,
             cleanup=not args.keep_source
         )
     except Exception as e:
