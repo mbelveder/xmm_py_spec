@@ -7,6 +7,7 @@ from datetime import datetime
 import pandas as pd
 import os
 import traceback
+from typing import Literal, Dict
 
 
 class ChangeDir:
@@ -62,10 +63,23 @@ def extract_title(spectrum_name):
         return coord_str, exp_str, date_str, date_obs_dt, obs_id
 
 
-def analyze_source(source: Source, output_dir: Path) -> pd.DataFrame:
-    """Analyze all observations for a single source"""
+InstrumentType = Literal["PN", "M1", "M2"]
+
+def analyze_source(
+    source: Source,
+    output_dir: Path,
+    instrument: InstrumentType = "PN"
+) -> pd.DataFrame:
+    """Analyze all observations for a single source."""
     logger = logging.getLogger(__name__)
-    logger.info(f"\nStarting analysis of source {source.source_id}")
+    logger.info(
+        f"\nStarting analysis of source {source.source_id} "
+        f"using {instrument} instrument"
+    )
+    
+    # Set instrument on source
+    source.instrument = instrument
+
     logger.info(f"Found {len(source.observations)} observations")
 
     fit_results = []

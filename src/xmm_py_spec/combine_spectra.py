@@ -1,9 +1,17 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Literal
 import subprocess
 from datetime import datetime
 import logging
 import argparse
+
+# Add instrument type and mapping
+InstrumentType = Literal["PN", "M1", "M2"]
+INSTRUMENTS = {
+    "PN": "PN",
+    "M1": "M1",
+    "M2": "M2"
+}
 
 
 def validate_combine_args(args: List[str]) -> bool:
@@ -114,17 +122,11 @@ def convert_to_docker_path(path: Path) -> str:
 
 
 def build_combine_args(
-        spec_files: List[Dict[str, List[Path]]], source_dir: Path
+        spec_files: List[Dict[str, List[Path]]], 
+        source_dir: Path,
+        instrument: InstrumentType
 ) -> List[str]:
-    """Build epicspeccombine arguments with docker paths.
-
-    Args:
-        spec_files: List of dictionaries containing paths to spectral files
-        source_dir: Directory where combined files will be saved
-
-    Returns:
-        List of formatted arguments for epicspeccombine
-    """
+    """Build epicspeccombine arguments with docker paths."""
     # Initialize with empty lists for each file type
     files_by_type = {
         'spec': ('pha', []),
@@ -144,67 +146,86 @@ def build_combine_args(
         for _, (param, files) in files_by_type.items()
     ]
 
-    # Add output files
+    filenames = get_instrument_filenames(instrument)
     output_path = convert_to_docker_path(source_dir)
     args.extend([
-        f"filepha='{output_path}/combined_spectrum.ds'",
-        f"filebkg='{output_path}/combined_background.ds'",
-        f"filersp='{output_path}/combined_response.rmf'"
+        f"filepha='{output_path}/{filenames['spectrum']}'",
+        f"filebkg='{output_path}/{filenames['background']}'",
+        f"filersp='{output_path}/{filenames['response']}'"
     ])
 
     return args
 
 
-def find_spectral_files(src_dir: Path) -> List[Dict[str, List[Path]]]:
-    """Find all spectral files in observation directories."""
+def find_spectral_files(
+    src_dir: Path, 
+    instrument: InstrumentType = "PN"
+) -> List[Dict[str, List[Path]]]:
+    """Find all spectral files in observation directories for given instrument."""
     spec_files = []
-
-    pn_dirs = list(src_dir.glob('**/PPS/PN'))
-
-    if not pn_dirs:
-        print(f"No PN directories found in {src_dir}")
+    
+    # Search for specific instrument directories
+    inst_dirs = list(src_dir.glob(f'**/PPS/{instrument}'))
+    
+    if not inst_dirs:
+        logging.warning(f"No {instrument} directories found in {src_dir}")
         return []
 
-    # Directory with file paths for every source
-    for pn_dir in pn_dirs:
+    for inst_dir in inst_dirs:
         files = {
-            'spec': list(pn_dir.glob('*SRSPEC*.FTZ')),
-            'bkg': list(pn_dir.glob('*BGSPEC*.FTZ')),
-            'rmf': list(pn_dir.glob('*.rmf')),
-            'arf': list(pn_dir.glob('*SRCARF*.FTZ'))
+            'spec': list(inst_dir.glob(f'*{instrument}*SRSPEC*.FTZ')),
+            'bkg': list(inst_dir.glob(f'*{instrument}*BGSPEC*.FTZ')),
+            'rmf': list(inst_dir.glob(f'*{instrument.lower()}*.rmf')),
+            'arf': list(inst_dir.glob(f'*{instrument}*ARF*.FTZ'))
         }
 
-        if all(files.values()):  # All required files exist
+        if all(files.values()):
             spec_files.append(files)
         else:
-            print(f'Missing files in {pn_dir}, skipping...')
-            continue
+            logging.warning(
+                f'Missing {instrument} files in {inst_dir}, skipping...'
+            )
 
     return spec_files
 
 
-def process_single_source(src_dir: Path, group: bool = False) -> bool:
-    """Process a single source directory."""
-    logging.info(f"Processing source directory: {src_dir}")
+def process_single_source(
+    src_dir: Path,
+    instrument: InstrumentType = "PN",
+    group: bool = False
+) -> bool:
+    """Process a single source directory for specific instrument."""
+    logging.info(
+        f"Processing source directory: {src_dir} for instrument {instrument}"
+    )
 
     try:
-        spec_files = find_spectral_files(src_dir)
+        spec_files = find_spectral_files(src_dir, instrument)
         if not spec_files:
-            logging.warning(f"No complete spectral sets found in {src_dir}")
+            logging.warning(
+                f"No complete spectral sets found for {instrument} in {src_dir}"
+            )
             return False
 
-        return combine_source_spectra(src_dir, spec_files, group)
+        # Create instrument-specific output directory
+        output_dir = src_dir / "combined" / instrument
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        return combine_source_spectra(output_dir, spec_files, group, instrument)
     except Exception as e:
-        logging.error(f"Error processing {src_dir}: {str(e)}")
+        logging.error(f"Error processing {src_dir} ({instrument}): {str(e)}")
         return False
 
 
 def combine_source_spectra(
-    src_dir: Path, spec_files: List[Dict[str, List[Path]]], group: bool
+    src_dir: Path, 
+    spec_files: List[Dict[str, List[Path]]], 
+    group: bool,
+    instrument: InstrumentType = "PN"
 ) -> bool:
     """Combine and optionally group spectra for a single source."""
     # Build and run combine command
-    args = build_combine_args(spec_files, src_dir)
+    args = build_combine_args(spec_files, src_dir, instrument)
     save_debug_command(args, src_dir)
 
     if not run_spcombine(args):
@@ -223,8 +244,20 @@ def combine_source_spectra(
     return True
 
 
+def get_instrument_filenames(instrument: InstrumentType) -> Dict[str, str]:
+    """Get instrument-specific filenames for combined spectra."""
+    return {
+        'spectrum': f'combined_spectrum_{instrument}.ds',
+        'background': f'combined_background_{instrument}.ds',
+        'response': f'combined_response_{instrument}.rmf',
+        'grouped': f'combined_spectrum_grouped_{instrument}.pha'
+    }
+
+
 def combine_spectra(
-    base_dir: str = "data/downloaded_spectra", group: bool = False
+    base_dir: str = "data/downloaded_spectra",
+    instruments: List[InstrumentType] = None,
+    group: bool = False
 ) -> None:
     """Combine spectra for each source and optionally group them."""
     base_path = Path(base_dir)
@@ -232,13 +265,16 @@ def combine_spectra(
         logging.error(f"Base directory {base_dir} does not exist")
         return
 
+    instruments = instruments or ["PN"]
+    
     # Process each source directory
     for src_dir in (d for d in base_path.iterdir() if d.is_dir()):
-        process_single_source(src_dir, group)
+        for instrument in instruments:
+            process_single_source(src_dir, instrument, group)
 
 
 def main():
-    """Main entry point with basic logging configuration."""
+    """Main entry point with command line arguments."""
     parser = argparse.ArgumentParser(
         description="Combine and optionally group XMM-Newton spectra."
     )
@@ -252,13 +288,20 @@ def main():
         action='store_true',
         help="Group combined spectra using ftgrouppha"
     )
+    parser.add_argument(
+        '--instruments',
+        nargs='+',
+        choices=list(INSTRUMENTS.keys()),
+        default=["PN"],
+        help="Instruments to process (default: PN)"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    combine_spectra(args.base_dir, args.group)
+    combine_spectra(args.base_dir, args.instruments, args.group)
 
 
 if __name__ == "__main__":

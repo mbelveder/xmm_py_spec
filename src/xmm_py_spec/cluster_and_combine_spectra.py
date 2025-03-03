@@ -10,10 +10,10 @@ The process consists of two main steps:
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 import pandas as pd
 import shutil
-from .combine_spectra import combine_source_spectra, find_spectral_files
+from .combine_spectra import combine_source_spectra, find_spectral_files, convert_to_docker_path
 import argparse
 from .logging_config import get_logger, setup_basic_logging
 
@@ -21,6 +21,12 @@ from .logging_config import get_logger, setup_basic_logging
 setup_basic_logging()
 logger = get_logger(__name__)
 
+InstrumentType = Literal["PN", "M1", "M2"]
+INSTRUMENTS = {
+    "PN": "PN",
+    "M1": "M1",
+    "M2": "M2"
+}
 
 def copy_spectral_files(source_dir: Path, target_dir: Path) -> List[str]:
     """Copy spectral files with verification."""
@@ -69,7 +75,8 @@ def _process_cluster_copying(
     current_cluster: Dict,
     spectra_dir: Path,
     output_dir: Path,
-    source_user_id: str
+    source_user_id: str,
+    instrument: InstrumentType = "PN"
 ) -> None:
     """Process file copying for a cluster."""
     if not (spectra_dir and output_dir and source_user_id):
@@ -100,14 +107,14 @@ def _process_cluster_copying(
         src_num = obs['src_num']
         source_dir = (
             spectra_dir / source_user_id / f"{obs_path_id}_{src_num}"
-            / "PPS" / "PN"
+            / "PPS" / instrument
         )
         logger.info(
             f"Checking source directory: {source_dir} "
             f"(exists: {source_dir.exists()})"
         )
         if source_dir.exists():
-            target_dir = cluster_dir / f"{obs_path_id}_{src_num}" / "PPS" / "PN"
+            target_dir = cluster_dir / f"{obs_path_id}_{src_num}" / "PPS" / instrument
             copied = copy_spectral_files(source_dir, target_dir)
             current_cluster['copied_files'][f"{obs_path_id}_{src_num}"] = copied
         else:
@@ -149,7 +156,8 @@ def cluster_observations(
     gap_threshold: int,
     spectra_dir: Optional[Path] = None,
     output_dir: Optional[Path] = None,
-    source_user_id: Optional[str] = None
+    source_user_id: Optional[str] = None,
+    instrument: InstrumentType = "PN"
 ) -> List[Dict]:
     """Group observations into clusters based on time gaps."""
     if obs_data.empty:
@@ -171,7 +179,7 @@ def cluster_observations(
 
         if new_cluster and current_cluster['observations']:
             _process_cluster_copying(
-                current_cluster, spectra_dir, output_dir, source_user_id
+                current_cluster, spectra_dir, output_dir, source_user_id, instrument
             )
             clusters.append(current_cluster)
             logger.info(
@@ -184,7 +192,7 @@ def cluster_observations(
     # Handle last cluster
     if current_cluster['observations']:
         _process_cluster_copying(
-            current_cluster, spectra_dir, output_dir, source_user_id
+            current_cluster, spectra_dir, output_dir, source_user_id, instrument
         )
         clusters.append(current_cluster)
         logger.info(
@@ -230,7 +238,8 @@ def cluster(
     csv_path: Path,
     gap_threshold: int,
     spectra_dir: Optional[Path] = None,
-    output_dir: Optional[Path] = None
+    output_dir: Optional[Path] = None,
+    instrument: InstrumentType = "PN"
 ) -> List[Dict]:
     """
     Cluster XMM-Newton observations based on their observation times.
@@ -241,6 +250,7 @@ def cluster(
         gap_threshold: Maximum days between observations in same cluster
         spectra_dir: Optional directory containing spectrum files
         output_dir: Optional directory to save clustered files
+        instrument: Instrument to process (default: PN)
     """
 
     try:
@@ -259,7 +269,8 @@ def cluster(
             gap_threshold,
             spectra_dir=spectra_dir,
             output_dir=output_dir,
-            source_user_id=source_user_id
+            source_user_id=source_user_id,
+            instrument=instrument
         )
 
         if not clusters:
@@ -281,11 +292,56 @@ def cluster(
         raise
 
 
+def get_instrument_filenames(instrument: InstrumentType) -> Dict[str, str]:
+    """Get instrument-specific filenames for combined spectra."""
+    return {
+        'spectrum': f'combined_spectrum_{instrument}.ds',
+        'background': f'combined_background_{instrument}.ds',
+        'response': f'combined_response_{instrument}.rmf',
+        'grouped': f'combined_spectrum_grouped_{instrument}.pha'
+    }
+
+def build_combine_args(
+    spec_files: List[Dict[str, List[Path]]], 
+    source_dir: Path,
+    instrument: InstrumentType
+) -> List[str]:
+    """Build epicspeccombine arguments with docker paths."""
+    # Initialize with empty lists for each file type
+    files_by_type = {
+        'spec': ('pha', []),
+        'bkg': ('bkg', []),
+        'rmf': ('rmf', []),
+        'arf': ('arf', [])
+    }
+
+    # Collect all files
+    for observation in spec_files:
+        for file_type in files_by_type:
+            files_by_type[file_type][1].extend(observation[file_type])
+
+    # Build arguments list
+    args = [
+        f"{param}='{' '.join(convert_to_docker_path(f) for f in files)}'"
+        for _, (param, files) in files_by_type.items()
+    ]
+
+    filenames = get_instrument_filenames(instrument)
+    output_path = convert_to_docker_path(source_dir)
+    args.extend([
+        f"filepha='{output_path}/{filenames['spectrum']}'",
+        f"filebkg='{output_path}/{filenames['background']}'",
+        f"filersp='{output_path}/{filenames['response']}'"
+    ])
+
+    return args
+
 def _process_single_cluster(
     cluster: Dict,
     index: int,
     total: int,
-    group: bool
+    group: bool,
+    instrument: InstrumentType = "PN"
 ) -> Optional[Tuple[str, Path]]:
     """Process a single cluster and return its combined spectrum path."""
     if not cluster.get('cluster_dir') or not cluster.get('start_date'):
@@ -296,18 +352,27 @@ def _process_single_cluster(
         f"Processing cluster {index}/{total} from {cluster['start_date']}"
     )
 
-    spec_files = find_spectral_files(cluster['cluster_dir'])
+    spec_files = find_spectral_files(cluster['cluster_dir'], instrument)
     if not spec_files:
         logger.warning(f"No complete spectral sets in cluster {index}")
         return None
 
-    if not combine_source_spectra(cluster['cluster_dir'], spec_files, group):
+    # Create args with instrument info
+    args = build_combine_args(spec_files, cluster['cluster_dir'], instrument)
+    
+    if not combine_source_spectra(
+        cluster['cluster_dir'], 
+        spec_files, 
+        group,
+        instrument=instrument
+    ):
         logger.error(f"Failed to combine cluster {index}")
         return None
 
+    # Use correct filename
+    filenames = get_instrument_filenames(instrument)
     cluster_id = cluster['start_date'].strftime('%Y_%m')
-    combined_path = cluster['cluster_dir'] / "combined_spectrum.ds"
-    logger.info(f"Successfully combined cluster {index}")
+    combined_path = cluster['cluster_dir'] / filenames['spectrum']
 
     return cluster_id, combined_path
 
@@ -315,6 +380,7 @@ def _process_single_cluster(
 def combine_clustered(
     clusters: List[Dict],
     source_user_id: str,
+    instrument: InstrumentType = "PN",
     group: bool = False
 ) -> Dict[str, Path]:
     """Combine clustered observations using epicspeccombine."""
@@ -326,7 +392,7 @@ def combine_clustered(
 
     try:
         for i, cluster in enumerate(clusters, 1):
-            result = _process_single_cluster(cluster, i, len(clusters), group)
+            result = _process_single_cluster(cluster, i, len(clusters), group, instrument)
             if result:
                 cluster_id, path = result
                 combined_spectra[cluster_id] = path
@@ -351,11 +417,15 @@ def cluster_and_combine_spectra(
     csv_path: Path,
     spectra_dir: Path,
     output_dir: Path,
+    instrument: InstrumentType = "PN",
     gap_threshold: int = 90,
     group: bool = False
 ) -> Dict[str, Path]:
     """Main function that orchestrates clustering and combination."""
-    logger.info(f"Starting processing for source {source_user_id}")
+    logger.info(
+        f"Starting processing for source {source_user_id} "
+        f"with instrument {instrument}"
+    )
     logger.debug(f"Parameters: gap_threshold={gap_threshold}, group={group}")
 
     try:
@@ -364,12 +434,15 @@ def cluster_and_combine_spectra(
             csv_path=csv_path,
             gap_threshold=gap_threshold,
             spectra_dir=spectra_dir,
-            output_dir=output_dir
+            output_dir=output_dir,
+            instrument=instrument
         )
         if not clusters:
             return {}
 
-        combined = combine_clustered(clusters, source_user_id, group)
+        combined = combine_clustered(
+            clusters, source_user_id, instrument, group
+        )
 
         if not combined:
             logger.warning("No spectra were successfully combined")
@@ -424,6 +497,12 @@ def main():
         action='store_true',
         help="Only perform clustering without combining"
     )
+    parser.add_argument(
+        '--instrument',
+        choices=list(INSTRUMENTS.keys()),
+        default="PN",
+        help="Instrument to process (default: PN)"
+    )
 
     args = parser.parse_args()
 
@@ -433,7 +512,8 @@ def main():
             csv_path=args.csv_path,
             gap_threshold=args.gap_threshold,
             spectra_dir=args.spectra_dir,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            instrument=args.instrument
         )
         logger.info(
             f"Created {len(clusters)} clusters for source {args.source_user_id}"
@@ -443,6 +523,7 @@ def main():
             combined = combine_clustered(
                 clusters=clusters,
                 source_user_id=args.source_user_id,
+                instrument=args.instrument,
                 group=args.group
             )
             logger.info(

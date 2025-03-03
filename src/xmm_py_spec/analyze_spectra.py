@@ -3,48 +3,20 @@ import logging
 from typing import List
 import xspec
 from astropy.io import fits
-import argparse
 
 
-def fix_spectrum_paths_inplace(
-    spectrum_file: Path,
-    make_relative: bool = True,
-    debug: bool = False
-) -> None:
-    """Update FITS header keywords to use correct paths.
-
-    Args:
-        spectrum_file: Path to the spectrum file
-        make_relative: If True, use paths relative to spectrum location
-        debug: Print debug info about path changes
-    """
-    if debug:
-        logging.debug(f"Fixing paths in spectrum file: {spectrum_file}")
-        logging.debug(f"Spectrum parent dir: {spectrum_file.parent}")
-
+def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
+    """Update FITS header keywords to use local paths."""
     with fits.open(spectrum_file, mode='update') as hdul:
         for hdu in hdul:
             for key in ['BACKFILE', 'RESPFILE', 'ANCRFILE']:
                 if key in hdu.header:
                     old_path = hdu.header[key]
-                    if debug:
-                        logging.debug(f"Original {key}: {old_path}")
-
-                    # Always convert to local path relative to spectrum location
-                    new_path = str(spectrum_file.parent / Path(old_path).name)
-
-                    if make_relative:
-                        new_path = Path(old_path).name
-
-                    if debug:
-                        logging.debug(f"New {key}: {new_path}")
-                        # Verify file exists
-                        check_path = spectrum_file.parent / Path(new_path)
-                        logging.debug(f"Checking existence of: {check_path}")
-                        logging.debug(f"File exists: {check_path.exists()}")
-
-                    hdu.header[key] = new_path
-
+                    if old_path.startswith('/app/data/'):
+                        new_path = str(
+                            spectrum_file.parent / Path(old_path).name
+                        )
+                        hdu.header[key] = new_path
         hdul.flush()
 
 
@@ -106,12 +78,10 @@ def find_grouped_spectra(
 ) -> List[Path]:
     """Find one grouped spectrum per source directory."""
     base_path = Path(base_dir)
-    print(base_path)
     spectra = []
 
     # Process each source directory
     for src_dir in base_path.iterdir():
-        print(src_dir)
         if not src_dir.is_dir():
             continue
 
@@ -141,23 +111,12 @@ def analyze_spectra(base_dir: str = "data/downloaded_spectra") -> None:
 
 
 def main():
-    """Command-line interface for spectral analysis."""
-    parser = argparse.ArgumentParser(
-        description="Analyze grouped XMM-Newton spectra"
-    )
-    parser.add_argument(
-        '--base-dir',
-        type=Path,
-        default=Path("data/downloaded_spectra"),
-        help="Base directory containing grouped spectra"
-    )
-    args = parser.parse_args()
-
+    """Main entry point with basic logging configuration."""
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    analyze_spectra(str(args.base_dir))
+    analyze_spectra()
 
 
 if __name__ == "__main__":

@@ -7,11 +7,29 @@ download_spectra:
 download_spectra_full_list:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_lh_full.csv
 
+download_all_instruments:
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_sources_lh.csv --instruments PN M1 M2
+
+download_mos:
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_lh_Ms.csv --instruments M1 M2
+
 combine_spectra:
 		poetry run python -m xmm_py_spec.combine_spectra
 
+combine_spectra_all:
+		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2
+
+combine_spectra_mos:
+		poetry run python -m xmm_py_spec.combine_spectra --instruments M1 M2
+
 combine_spectra_group:
 		poetry run python -m xmm_py_spec.combine_spectra --group
+
+combine_spectra_all_group:
+		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2 --group
+
+combine_spectra_mos_group:
+		poetry run python -m xmm_py_spec.combine_spectra --instruments M1 M2 --group
 
 analyze_grouped_spectra:
 		poetry run python -m xmm_py_spec.analyze_spectra
@@ -19,8 +37,20 @@ analyze_grouped_spectra:
 fit_observation:
 		poetry run python -m xmm_py_spec.fit_observation
 
+fit_observation_all:
+		poetry run python -m xmm_py_spec.fit_observation --instruments PN M1 M2
+
+fit_observation_mos:
+		poetry run python -m xmm_py_spec.fit_observation --instruments M1 M2
+
 cluster_and_combine_spectra:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --group
+
+cluster_and_combine_spectra_mos1:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M1 --group
+
+cluster_and_combine_spectra_mos2:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M2 --group
 
 publish:
 		poetry publish --dry-run

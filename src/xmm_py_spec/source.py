@@ -1,8 +1,9 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Literal
+from typing import List, Literal, Optional
 import logging
 
+InstrumentType = Literal["PN", "M1", "M2"]
 
 @dataclass
 class Source:
@@ -12,42 +13,50 @@ class Source:
     base_path: Path
     spec_type: Literal["individual", "clustered"] = "individual"
     observations: List[Path] = None
+    instrument: InstrumentType = "PN"
 
     def __post_init__(self):
-        # For individual spectra, append source_id
-        # For clustered, use base_path as is since it already includes source_id
+        """Initialize source paths and load observations."""
+        # Avoid duplicate source_id in path
         self.source_path = (
-            self.base_path / self.source_id if self.spec_type == "individual"
-            else self.base_path
+            self.base_path 
+            if str(self.base_path).endswith(self.source_id)
+            else self.base_path / self.source_id
         )
         self.observations = self.get_spectra()
 
     def get_spectra(self) -> List[Path]:
-        """Get list of spectrum files based on type."""
+        """Get list of spectrum files based on type and instrument."""
         logging.debug(
-            f"Searching for {self.spec_type} spectra in {self.source_path}"
+            f"Searching for {self.spec_type} spectra "
+            f"({self.instrument}) in {self.source_path}"
         )
 
         if self.spec_type == "individual":
-            pattern = "*/PPS/PN/*SRSPEC*.FTZ"
+            pattern = f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
         else:
-            # Look for grouped spectra in cluster directories
-            pattern = "clusters/????_??/combined_spectrum_groupped.pha"
+            pattern = (
+                f"clusters/*/combined_spectrum_grouped_{self.instrument}.pha"
+            )
 
         spectra = sorted(self.source_path.glob(pattern))
-        logging.debug(
-            f"Found {len(spectra)} spectra matching pattern '{pattern}'"
+        logging.info(
+            f"Found {len(spectra)} {self.instrument} spectra "
+            f"matching '{pattern}'"
         )
 
         if not spectra:
-            logging.debug("Directory structure:")
-            for p in sorted(self.source_path.rglob("*")):
-                logging.debug(
-                    f"  {'D' if p.is_dir() else 'F'} "
-                    f"{p.relative_to(self.source_path)}"
-                )
+            self._log_directory_structure()
             raise FileNotFoundError(
-                f"No {self.spec_type} spectra found in {self.source_path} "
-                f"using pattern '{pattern}'"
+                f"No {self.spec_type} {self.instrument} spectra found in "
+                f"{self.source_path}"
             )
         return spectra
+
+    def _log_directory_structure(self) -> None:
+        """Log directory structure for debugging."""
+        logging.debug("Directory structure:")
+        for p in sorted(self.source_path.rglob("*")):
+            rel_path = p.relative_to(self.source_path)
+            file_type = 'D' if p.is_dir() else 'F'
+            logging.debug(f"  {file_type} {rel_path}")
