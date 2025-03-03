@@ -1,6 +1,6 @@
 import yaml
 from pathlib import Path
-from typing import Literal
+from typing import Literal, List, Dict
 from .analyze_spectral_variability import analyze_source
 from .source import Source
 from .logging_config import setup_logging
@@ -9,29 +9,60 @@ from .analyze_spectra import fix_spectrum_paths_inplace
 import pandas as pd
 from typing import Optional
 
+InstrumentType = Literal["PN", "M1", "M2"]
+INSTRUMENTS = {
+    "PN": "PN",
+    "M1": "M1",
+    "M2": "M2"
+}
 
 def _get_spectra_path(source_id: str, spec_type: str, base_dir: Path) -> Path:
     """Get the path to spectra directory."""
     if spec_type == "individual":
-        spec_dir = "downloaded_spectra"
+        # For individual mode, just return the downloaded_spectra path
+        return base_dir / "downloaded_spectra"
     else:
-        spec_dir = "clustered_spectra"
-    return base_dir / spec_dir / source_id
+        # For clustered, go to the clusters directory
+        return base_dir / "clustered_spectra" / source_id
 
+def _get_required_files(instrument: InstrumentType) -> Dict[str, str]:
+    """Get list of required files for given instrument."""
+    patterns = {
+        "PN": {
+            'spectrum': '*PNS*SRSPEC*.FTZ',
+            'background': '*PNS*BGSPEC*.FTZ',
+            'response': '*pn*.rmf'
+        },
+        "M1": {
+            'spectrum': '*M1S*SRSPEC*.FTZ',
+            'background': '*M1S*BGSPEC*.FTZ',
+            'response': '*m1*.rmf'
+        },
+        "M2": {
+            'spectrum': '*M2S*SRSPEC*.FTZ',
+            'background': '*M2S*BGSPEC*.FTZ',
+            'response': '*m2*.rmf'
+        }
+    }
+    return patterns[instrument]
 
-def _verify_spectrum_files(spectrum: Path) -> bool:
+def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
     """Verify that all required files exist for a spectrum."""
-    required_files = [
-        'combined_spectrum.ds',
-        'combined_background.ds',
-        'combined_response.rmf'
-    ]
-    missing = [f for f in required_files if not (spectrum.parent / f).exists()]
+    required = _get_required_files(instrument)
+    parent_dir = spectrum.parent
+    
+    missing = []
+    for file_type, pattern in required.items():
+        if not list(parent_dir.glob(pattern)):
+            missing.append(f"{file_type} ({pattern})")
+    
     if missing:
-        logging.error(f"Missing required files for {spectrum}: {missing}")
+        logging.error(
+            f"Missing required files for {instrument} spectrum "
+            f"{spectrum}: {missing}"
+        )
         return False
     return True
-
 
 def _fix_spectrum_paths(spectrum: Path) -> bool:
     """Fix paths in spectrum file."""
@@ -42,7 +73,6 @@ def _fix_spectrum_paths(spectrum: Path) -> bool:
     except Exception as e:
         logging.error(f"Failed to fix paths in {spectrum}: {e}")
         return False
-
 
 def _process_spectra(source: Source, base_dir: Path) -> Optional[pd.DataFrame]:
     """Process all spectra for a source."""
@@ -57,42 +87,43 @@ def _process_spectra(source: Source, base_dir: Path) -> Optional[pd.DataFrame]:
         logging.debug("Traceback:", exc_info=True)
         return None
 
-
 def analyze_source_spectra(
     source_id: str,
     params: dict,
     spec_type: Literal["individual", "clustered"],
-    base_dir: Path
+    base_dir: Path,
+    instruments: List[InstrumentType] = None
 ) -> None:
     """Analyze individual or clustered spectra for a source."""
-    spec_path = _get_spectra_path(source_id, spec_type, base_dir)
-    if not spec_path.exists():
-        logging.warning(
-            f"No {spec_type} spectra directory found at {spec_path}"
-        )
-        return
-
-    source = Source(
-        source_id=source_id,
-        redshift=params["redshift"],
-        base_path=spec_path,
-        spec_type=spec_type
-    )
-
-    # Process spectra files
-    for spectrum in source.observations:
-        files_verified = _verify_spectrum_files(spectrum)
-        paths_fixed = _fix_spectrum_paths(spectrum)
-        if not files_verified or not paths_fixed:
+    instruments = instruments or ["PN"]
+    
+    for instrument in instruments:
+        spec_path = _get_spectra_path(source_id, spec_type, base_dir)
+        if not spec_path.exists():
+            logging.warning(
+                f"No {spec_type} spectra directory found at {spec_path}"
+            )
             continue
 
-    # Analyze and save results
-    results_df = _process_spectra(source, base_dir)
-    if results_df is not None:
-        output_file = base_dir / f"source_{source_id}_{spec_type}_results.csv"
-        results_df.to_csv(output_file, index=None)
-        logging.info(f"Results saved to: {output_file}")
+        source = Source(
+            source_id=source_id,
+            redshift=params["redshift"],
+            base_path=spec_path,
+            spec_type=spec_type,
+            instrument=instrument
+        )
 
+        # Process spectra files
+        for spectrum in source.observations:
+            if not _verify_spectrum_files(spectrum, instrument) or not _fix_spectrum_paths(spectrum):
+                continue
+
+        # Analyze and save results
+        results_df = _process_spectra(source, base_dir)
+        if results_df is not None:
+            output_file = base_dir / f"source_{source_id}_{spec_type}_{instrument}_results.csv"
+            results_df.to_csv(output_file, index=None)
+            logging.info(f"Results saved to: {output_file}")
 
 def main():
     """Main entry point with CLI arguments."""
@@ -110,6 +141,13 @@ def main():
         choices=["individual", "clustered", "both"],
         default="both",
         help="Type of spectra to analyze"
+    )
+    parser.add_argument(
+        "--instruments",
+        nargs="+",
+        choices=list(INSTRUMENTS.keys()),
+        default=["PN"],
+        help="Instruments to analyze (default: PN)"
     )
     args = parser.parse_args()
 
@@ -137,9 +175,8 @@ def main():
         logging.info(f"\nProcessing source: {source_id}")
         for spec_type in spec_types:
             analyze_source_spectra(
-                source_id, params, spec_type, base_dir
+                source_id, params, spec_type, base_dir, args.instruments
             )
-
 
 if __name__ == "__main__":
     main()
