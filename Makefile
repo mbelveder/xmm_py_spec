@@ -34,14 +34,14 @@ combine_spectra_mos_group:
 analyze_grouped_spectra:
 		poetry run python -m xmm_py_spec.analyze_spectra
 
-fit_observation:
-		poetry run python -m xmm_py_spec.fit_observation
+fit_observations:
+		poetry run python -m xmm_py_spec.fit_observations
 
-fit_observation_all:
-		poetry run python -m xmm_py_spec.fit_observation --instruments PN M1 M2
+fit_observations_all:
+		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2
 
-fit_observation_mos:
-		poetry run python -m xmm_py_spec.fit_observation --instruments M1 M2
+fit_observations_mos:
+		poetry run python -m xmm_py_spec.fit_observations --instruments M1 M2
 
 cluster_and_combine_spectra:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --group
