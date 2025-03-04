@@ -71,7 +71,7 @@ def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
 def _fix_spectrum_paths(spectrum: Path) -> bool:
     """Fix paths in spectrum file."""
     try:
-        fix_spectrum_paths_inplace(spectrum, make_relative=True, debug=True)
+        fix_spectrum_paths_inplace(spectrum)
         logging.info(f"Successfully fixed paths for {spectrum}")
         return True
     except Exception as e:
@@ -150,8 +150,8 @@ def main():
     )
     parser.add_argument(
         "--type",
-        choices=["individual", "clustered", "both"],
-        default="both",
+        choices=["individual", "clustered"],
+        default="individual",
         help="Type of spectra to analyze"
     )
     parser.add_argument(
@@ -178,17 +178,11 @@ def main():
     else:
         sources = config["sources"]
 
-    spec_types = (
-        ["individual", "clustered"] if args.type == "both"
-        else [args.type]
-    )
-
     for source_id, params in sources.items():
         logging.info(f"\nProcessing source: {source_id}")
-        for spec_type in spec_types:
-            analyze_source_spectra(
-                source_id, params, spec_type, base_dir, args.instruments
-            )
+        analyze_source_spectra(
+            source_id, params, args.type, base_dir, args.instruments
+        )
 
 
 if __name__ == "__main__":
