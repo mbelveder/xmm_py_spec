@@ -165,7 +165,7 @@ def main():
 
     base_dir = Path("data")
     log_dir = base_dir / "logs"
-    setup_logging(log_dir, "fit_observation_")
+    setup_logging(log_dir, "fit_observations_")
 
     with open("config/sources.yaml") as f:
         config = yaml.safe_load(f)
