@@ -5,7 +5,8 @@ from xmm_py_spec.download_spectra import (
     download_spectra,
     clear_log_file,
     validate_download_files, get_source_dir, validate_obs_table,
-    reorganize_extracted_files, calculate_delay, update_meta_log
+    reorganize_extracted_files, calculate_delay, update_meta_log,
+    validate_instrument, INSTRUMENTS
 )
 
 
@@ -59,21 +60,22 @@ def test_download_spectra_logs_append(tmp_path):
 
 def test_validate_download_files(tmp_path):
     """Test file validation with missing and complete sets."""
-    # Create test files
     test_dir = tmp_path / "test_spectra"
     test_dir.mkdir()
-    (test_dir / "test_SRSPEC.FTZ").touch()
-    (test_dir / "test_BGSPEC.FTZ").touch()
-    (test_dir / "test_SRCARF.FTZ").touch()
-    (test_dir / "test.rmf").touch()
 
-    # Test complete set
-    validation = validate_download_files(test_dir)
+    # Use PN instrument-specific file patterns
+    (test_dir / "PNS001SRSPEC1000.FTZ").touch()
+    (test_dir / "PNS001BGSPEC1000.FTZ").touch()
+    (test_dir / "PNS001SRCARF1000.FTZ").touch()
+    (test_dir / "pn.rmf").touch()
+
+    # Test complete set with PN instrument
+    validation = validate_download_files(test_dir, "PN")
     assert all(validation.values())
 
     # Test missing file
-    (test_dir / "test.rmf").unlink()
-    validation = validate_download_files(test_dir)
+    (test_dir / "pn.rmf").unlink()
+    validation = validate_download_files(test_dir, "PN")
     assert not validation['rmf']
     assert validation['spectrum']
 
@@ -151,22 +153,78 @@ def test_reorganize_extracted_files(tmp_path):
     base_path = tmp_path
     obs_id = "test_obs"
 
-    # Create test structure
+    # Create test structure with instrument-specific file
     pps_dir = base_path / obs_id / "pps"
     pps_dir.mkdir(parents=True)
-    test_file = pps_dir / "test.FTZ"
+    test_file = pps_dir / "PNS001SRSPEC1000.FTZ"
     test_file.touch()
 
-    # Test with cleanup
-    reorganize_extracted_files(base_path, obs_id, cleanup=True)
+    # Test with cleanup (with instrument parameter)
+    reorganize_extracted_files(base_path, obs_id, instrument="PN", cleanup=True)
     assert not (base_path / obs_id).exists()
-    assert (base_path / "PPS" / "PN" / "test.FTZ").exists()
+    assert (base_path / "PPS" / "PN" / "PNS001SRSPEC1000.FTZ").exists()
 
-    # Test without cleanup
+    # Test without cleanup (with instrument parameter)
     pps_dir.mkdir(parents=True)
-    test_file = pps_dir / "test2.FTZ"
+    test_file = pps_dir / "PNS001SRSPEC2000.FTZ"
     test_file.touch()
 
-    reorganize_extracted_files(base_path, obs_id, cleanup=False)
+    reorganize_extracted_files(
+        base_path, obs_id, instrument="PN", cleanup=False
+    )
     assert (base_path / obs_id).exists()
-    assert (base_path / "PPS" / "PN" / "test2.FTZ").exists()
+    assert (base_path / "PPS" / "PN" / "PNS001SRSPEC2000.FTZ").exists()
+
+
+def test_validate_instrument():
+    """Test instrument validation."""
+    assert validate_instrument("PN") == "PN"
+    assert validate_instrument("pn") == "PN"
+    assert validate_instrument("M1") == "M1"
+    assert validate_instrument("m2") == "M2"
+
+    with pytest.raises(ValueError, match="Invalid instrument"):
+        validate_instrument("invalid")
+
+
+def test_validate_download_files_with_instrument(tmp_path):
+    """Test file validation with different instruments."""
+    test_dir = tmp_path / "test_spectra"
+    test_dir.mkdir()
+
+    # Test PN files
+    (test_dir / "PN_SRSPEC.FTZ").touch()
+    (test_dir / "PN_BGSPEC.FTZ").touch()
+    (test_dir / "PN_SRCARF.FTZ").touch()
+    (test_dir / "pn.rmf").touch()
+
+    validation = validate_download_files(test_dir, "PN")
+    assert all(validation.values())
+
+    # Test M1 files
+    (test_dir / "M1_SRSPEC.FTZ").touch()
+    (test_dir / "M1_BGSPEC.FTZ").touch()
+    (test_dir / "M1_SRCARF.FTZ").touch()
+    (test_dir / "m1.rmf").touch()
+
+    validation = validate_download_files(test_dir, "M1")
+    assert all(validation.values())
+
+
+def test_reorganize_extracted_files_with_instrument(tmp_path):
+    """Test file reorganization for different instruments."""
+    base_path = tmp_path
+    obs_id = "test_obs"
+
+    for instrument in INSTRUMENTS.keys():
+        # Create test structure
+        pps_dir = base_path / obs_id / "pps"
+        pps_dir.mkdir(parents=True)
+        test_file = pps_dir / f"test_{instrument}.FTZ"
+        test_file.touch()
+
+        # Test reorganization
+        reorganize_extracted_files(base_path, obs_id, instrument=instrument)
+        assert (
+            base_path / "PPS" / instrument / f"test_{instrument}.FTZ"
+        ).exists()
