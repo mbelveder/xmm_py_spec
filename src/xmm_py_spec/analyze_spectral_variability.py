@@ -33,10 +33,22 @@ data_path = Path(
 
 
 def extract_title(spectrum_name):
+    """Extract title information from spectrum file.
+
+    Args:
+        spectrum_name: Path or str of the spectrum file
+    """
+    # Use just the base name since we're in the correct directory
+    spectrum_name = Path(spectrum_name).name
 
     with fits.open(spectrum_name) as hdul:
         # Access the primary header
         header = hdul[0].header
+
+        # Make sure we handle relative paths in header
+        for key in ['BACKFILE', 'RESPFILE', 'ANCRFILE']:
+            if key in header:
+                header[key] = Path(header[key]).name
 
         date_obs = header['DATE-OBS']
         date_obs_dt = datetime.strptime(date_obs, '%Y-%m-%dT%H:%M:%S')
@@ -95,35 +107,40 @@ def analyze_source(
         logger.info(f"Spectrum path: {spectrum_path}")
 
         try:
-            coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
-                spectrum_path
-            )
-            logger.debug(f"Observation details: {date_str} | {exp_str}")
-            logger.debug(f"Coordinates: {coord_str}")
-            title = f'{coord_str} | {exp_str} | {date_str}'
-
-            # Extract obs_id and src_num from directory structure
-            src_path = spectrum_path.parent.parent.parent
-            logger.info(f"src_path: {src_path}")
-            # For individual spectra, use obsid_srcnum
-            if 'SRSPEC' in spectrum_path.name:
-                obs_path = spectrum_path.parent.parent.parent.parent
-                plot_name = (
-                    f"source_{src_path.name}_obs_{obs_path.name}_fit.png"
-                )
-            else:
-                # For clustered spectra, use cluster date
-                cluster_date = spectrum_path.parent.name  # Gets YYYY_MM
-                plot_name = (
-                    f"source_{src_path.name}_cluster_{cluster_date}_fit.png"
-                )
-
-            plot_path = plots_dir / plot_name
-            # plot_name = f"{src_path.name}.png"
-            # plot_path = plots_dir / plot_name
-            logger.info(f"Plot will be saved as: {plot_name} at {plot_path}")
-
+            # Use context manager to ensure we're in the
+            # correct directory when reading files
             with ChangeDir(spectrum_path.parent):
+                coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
+                    # Use only filename since we're in the correct directory
+                    spectrum_path.name
+                )
+                logger.debug(f"Observation details: {date_str} | {exp_str}")
+                logger.debug(f"Coordinates: {coord_str}")
+                title = f'{coord_str} | {exp_str} | {date_str}'
+
+                # Extract obs_id and src_num from directory structure
+                src_path = spectrum_path.parent.parent.parent
+                logger.info(f"src_path: {src_path}")
+                # For individual spectra, use obsid_srcnum
+                if 'SRSPEC' in spectrum_path.name:
+                    obs_path = spectrum_path.parent.parent.parent.parent
+                    plot_name = (
+                        f"source_{src_path.name}_obs_{obs_path.name}_fit.png"
+                    )
+                else:
+                    # For clustered spectra, use cluster date
+                    cluster_date = spectrum_path.parent.name  # Gets YYYY_MM
+                    plot_name = (
+                        f"source_{src_path.name}_cluster_{cluster_date}_fit.png"
+                    )
+
+                plot_path = plots_dir / plot_name
+                logger.info(
+                    f"Plot will be saved as: {plot_name} at {plot_path}"
+                )
+
+                # We're already in the correct directory,
+                # so just pass the filename
                 fit_result = mo2_fit_xmm(
                     specname=spectrum_path.name,
                     rshift=source.redshift,
