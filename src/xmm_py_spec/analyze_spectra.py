@@ -7,16 +7,24 @@ from astropy.io import fits
 
 def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
     """Update FITS header keywords to use local paths."""
+    companion_files = {
+        'BACKFILE': 'combined_background_{instrument}.ds',
+        'RESPFILE': 'combined_response_{instrument}.rmf',
+        'ANCRFILE': 'combined_arf_{instrument}.arf'
+    }
+
     with fits.open(spectrum_file, mode='update') as hdul:
+        # Extract instrument from filename (e.g., combined_spectrum_M1.ds -> M1)
+        instrument = spectrum_file.stem.split('_')[-1]
+
         for hdu in hdul:
-            for key in ['BACKFILE', 'RESPFILE', 'ANCRFILE']:
+            for key in companion_files:
                 if key in hdu.header:
-                    old_path = hdu.header[key]
-                    if old_path.startswith('/app/data/'):
-                        new_path = str(
-                            spectrum_file.parent / Path(old_path).name
-                        )
-                        hdu.header[key] = new_path
+                    # Use only the base filename without path
+                    filename = companion_files[key].format(
+                        instrument=instrument
+                    )
+                    hdu.header[key] = filename
         hdul.flush()
 
 
@@ -86,7 +94,7 @@ def find_grouped_spectra(
             continue
 
         # Look for combined spectrum in source directory
-        spectrum = src_dir / "combined_spectrum_groupped.pha"
+        spectrum = src_dir / "combined_spectrum_grouped.pha"
         if spectrum.exists():
             spectra.append(spectrum)
         else:
