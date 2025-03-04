@@ -48,13 +48,17 @@ def run_spcombine(args: List[str]) -> bool:
         return False
 
 
-def run_ftgrouppha(source_dir: Path) -> bool:
+def run_ftgrouppha(source_dir: Path, instrument: InstrumentType) -> bool:
     """Run ftgrouppha inside container with TTY allocation."""
     try:
-        spec_file = convert_to_docker_path(source_dir / 'combined_spectrum.ds')
-        bkg_file = convert_to_docker_path(source_dir / 'combined_background.ds')
+        spec_file = convert_to_docker_path(
+            source_dir / f'combined_spectrum_{instrument}.ds'
+        )
+        bkg_file = convert_to_docker_path(
+            source_dir / f'combined_background_{instrument}.ds'
+        )
         out_file = convert_to_docker_path(
-            source_dir / 'combined_spectrum_groupped.pha'
+            source_dir / f'combined_spectrum_grouped_{instrument}.pha'
         )
 
         cmd = [
@@ -238,7 +242,7 @@ def combine_source_spectra(
 
     # Handle grouping if requested
     if group:
-        if not run_ftgrouppha(src_dir):
+        if not run_ftgrouppha(src_dir, instrument):
             logging.error(f"Failed to group spectra for {src_dir}")
             return False
         logging.info(f"Successfully grouped spectra in {src_dir}")
