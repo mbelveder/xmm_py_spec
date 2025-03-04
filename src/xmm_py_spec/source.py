@@ -1,9 +1,10 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import List, Literal
 import logging
 
 InstrumentType = Literal["PN", "M1", "M2"]
+
 
 @dataclass
 class Source:
@@ -19,7 +20,7 @@ class Source:
         """Initialize source paths and load observations."""
         # Avoid duplicate source_id in path
         self.source_path = (
-            self.base_path 
+            self.base_path
             if str(self.base_path).endswith(self.source_id)
             else self.base_path / self.source_id
         )
@@ -33,7 +34,9 @@ class Source:
         )
 
         if self.spec_type == "individual":
-            pattern = f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
+            pattern = (
+                f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
+            )
         else:
             pattern = (
                 f"clusters/*/combined_spectrum_grouped_{self.instrument}.pha"

@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Literal
 import pandas as pd
 import shutil
-from .combine_spectra import combine_source_spectra, find_spectral_files, convert_to_docker_path
+from .combine_spectra import (
+    combine_source_spectra, find_spectral_files, convert_to_docker_path
+)
 import argparse
 from .logging_config import get_logger, setup_basic_logging
 
@@ -27,6 +29,7 @@ INSTRUMENTS = {
     "M1": "M1",
     "M2": "M2"
 }
+
 
 def copy_spectral_files(source_dir: Path, target_dir: Path) -> List[str]:
     """Copy spectral files with verification."""
@@ -114,7 +117,9 @@ def _process_cluster_copying(
             f"(exists: {source_dir.exists()})"
         )
         if source_dir.exists():
-            target_dir = cluster_dir / f"{obs_path_id}_{src_num}" / "PPS" / instrument
+            target_dir = (
+                cluster_dir / f"{obs_path_id}_{src_num}" / "PPS" / instrument
+            )
             copied = copy_spectral_files(source_dir, target_dir)
             current_cluster['copied_files'][f"{obs_path_id}_{src_num}"] = copied
         else:
@@ -179,7 +184,8 @@ def cluster_observations(
 
         if new_cluster and current_cluster['observations']:
             _process_cluster_copying(
-                current_cluster, spectra_dir, output_dir, source_user_id, instrument
+                current_cluster, spectra_dir, output_dir,
+                source_user_id, instrument
             )
             clusters.append(current_cluster)
             logger.info(
@@ -301,8 +307,9 @@ def get_instrument_filenames(instrument: InstrumentType) -> Dict[str, str]:
         'grouped': f'combined_spectrum_grouped_{instrument}.pha'
     }
 
+
 def build_combine_args(
-    spec_files: List[Dict[str, List[Path]]], 
+    spec_files: List[Dict[str, List[Path]]],
     source_dir: Path,
     instrument: InstrumentType
 ) -> List[str]:
@@ -336,6 +343,7 @@ def build_combine_args(
 
     return args
 
+
 def _process_single_cluster(
     cluster: Dict,
     index: int,
@@ -357,12 +365,9 @@ def _process_single_cluster(
         logger.warning(f"No complete spectral sets in cluster {index}")
         return None
 
-    # Create args with instrument info
-    args = build_combine_args(spec_files, cluster['cluster_dir'], instrument)
-    
     if not combine_source_spectra(
-        cluster['cluster_dir'], 
-        spec_files, 
+        cluster['cluster_dir'],
+        spec_files,
         group,
         instrument=instrument
     ):
@@ -392,7 +397,9 @@ def combine_clustered(
 
     try:
         for i, cluster in enumerate(clusters, 1):
-            result = _process_single_cluster(cluster, i, len(clusters), group, instrument)
+            result = _process_single_cluster(
+                cluster, i, len(clusters), group, instrument
+            )
             if result:
                 cluster_id, path = result
                 combined_spectra[cluster_id] = path

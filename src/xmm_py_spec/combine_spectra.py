@@ -122,7 +122,7 @@ def convert_to_docker_path(path: Path) -> str:
 
 
 def build_combine_args(
-        spec_files: List[Dict[str, List[Path]]], 
+        spec_files: List[Dict[str, List[Path]]],
         source_dir: Path,
         instrument: InstrumentType
 ) -> List[str]:
@@ -158,15 +158,17 @@ def build_combine_args(
 
 
 def find_spectral_files(
-    src_dir: Path, 
+    src_dir: Path,
     instrument: InstrumentType = "PN"
 ) -> List[Dict[str, List[Path]]]:
-    """Find all spectral files in observation directories for given instrument."""
+    """
+    Find all spectral files in observation directories for given instrument.
+    """
     spec_files = []
-    
+
     # Search for specific instrument directories
     inst_dirs = list(src_dir.glob(f'**/PPS/{instrument}'))
-    
+
     if not inst_dirs:
         logging.warning(f"No {instrument} directories found in {src_dir}")
         return []
@@ -218,8 +220,8 @@ def process_single_source(
 
 
 def combine_source_spectra(
-    src_dir: Path, 
-    spec_files: List[Dict[str, List[Path]]], 
+    src_dir: Path,
+    spec_files: List[Dict[str, List[Path]]],
     group: bool,
     instrument: InstrumentType = "PN"
 ) -> bool:
@@ -266,7 +268,7 @@ def combine_spectra(
         return
 
     instruments = instruments or ["PN"]
-    
+
     # Process each source directory
     for src_dir in (d for d in base_path.iterdir() if d.is_dir()):
         for instrument in instruments:

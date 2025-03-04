@@ -7,7 +7,7 @@ from datetime import datetime
 import pandas as pd
 import os
 import traceback
-from typing import Literal, Dict
+from typing import Literal
 
 
 class ChangeDir:
@@ -65,6 +65,7 @@ def extract_title(spectrum_name):
 
 InstrumentType = Literal["PN", "M1", "M2"]
 
+
 def analyze_source(
     source: Source,
     output_dir: Path,
@@ -76,7 +77,7 @@ def analyze_source(
         f"\nStarting analysis of source {source.source_id} "
         f"using {instrument} instrument"
     )
-    
+
     # Set instrument on source
     source.instrument = instrument
 

@@ -16,6 +16,7 @@ INSTRUMENTS = {
     "M2": "M2"
 }
 
+
 def _get_spectra_path(source_id: str, spec_type: str, base_dir: Path) -> Path:
     """Get the path to spectra directory."""
     if spec_type == "individual":
@@ -24,6 +25,7 @@ def _get_spectra_path(source_id: str, spec_type: str, base_dir: Path) -> Path:
     else:
         # For clustered, go to the clusters directory
         return base_dir / "clustered_spectra" / source_id
+
 
 def _get_required_files(instrument: InstrumentType) -> Dict[str, str]:
     """Get list of required files for given instrument."""
@@ -46,16 +48,17 @@ def _get_required_files(instrument: InstrumentType) -> Dict[str, str]:
     }
     return patterns[instrument]
 
+
 def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
     """Verify that all required files exist for a spectrum."""
     required = _get_required_files(instrument)
     parent_dir = spectrum.parent
-    
+
     missing = []
     for file_type, pattern in required.items():
         if not list(parent_dir.glob(pattern)):
             missing.append(f"{file_type} ({pattern})")
-    
+
     if missing:
         logging.error(
             f"Missing required files for {instrument} spectrum "
@@ -63,6 +66,7 @@ def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
         )
         return False
     return True
+
 
 def _fix_spectrum_paths(spectrum: Path) -> bool:
     """Fix paths in spectrum file."""
@@ -73,6 +77,7 @@ def _fix_spectrum_paths(spectrum: Path) -> bool:
     except Exception as e:
         logging.error(f"Failed to fix paths in {spectrum}: {e}")
         return False
+
 
 def _process_spectra(source: Source, base_dir: Path) -> Optional[pd.DataFrame]:
     """Process all spectra for a source."""
@@ -87,6 +92,7 @@ def _process_spectra(source: Source, base_dir: Path) -> Optional[pd.DataFrame]:
         logging.debug("Traceback:", exc_info=True)
         return None
 
+
 def analyze_source_spectra(
     source_id: str,
     params: dict,
@@ -96,7 +102,7 @@ def analyze_source_spectra(
 ) -> None:
     """Analyze individual or clustered spectra for a source."""
     instruments = instruments or ["PN"]
-    
+
     for instrument in instruments:
         spec_path = _get_spectra_path(source_id, spec_type, base_dir)
         if not spec_path.exists():
@@ -115,15 +121,21 @@ def analyze_source_spectra(
 
         # Process spectra files
         for spectrum in source.observations:
-            if not _verify_spectrum_files(spectrum, instrument) or not _fix_spectrum_paths(spectrum):
+            spectrum_verified = _verify_spectrum_files(spectrum, instrument)
+            spectrum_paths_fixed = _fix_spectrum_paths(spectrum)
+            if not spectrum_verified or not spectrum_paths_fixed:
                 continue
 
         # Analyze and save results
         results_df = _process_spectra(source, base_dir)
         if results_df is not None:
-            output_file = base_dir / f"source_{source_id}_{spec_type}_{instrument}_results.csv"
+            unique_name = f"{source_id}_{spec_type}_{instrument}"
+            output_file = (
+                base_dir / f"source_{unique_name}_results.csv"
+            )
             results_df.to_csv(output_file, index=None)
             logging.info(f"Results saved to: {output_file}")
+
 
 def main():
     """Main entry point with CLI arguments."""
@@ -177,6 +189,7 @@ def main():
             analyze_source_spectra(
                 source_id, params, spec_type, base_dir, args.instruments
             )
+
 
 if __name__ == "__main__":
     main()

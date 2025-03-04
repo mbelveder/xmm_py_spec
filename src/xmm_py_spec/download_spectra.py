@@ -55,7 +55,7 @@ Logging:
 from astroquery.esa.xmm_newton import XMMNewton
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Literal, Union
+from typing import Dict, List, Literal
 import shutil
 from .utils import load_source_list
 import argparse
@@ -93,7 +93,10 @@ def validate_instrument(instrument: str) -> InstrumentType:
     """Validate and normalize instrument name."""
     if instrument.upper() in INSTRUMENTS:
         return instrument.upper()  # type: InstrumentType
-    raise ValueError(f"Invalid instrument: {instrument}. Must be one of {list(INSTRUMENTS.keys())}")
+    raise ValueError(
+        f"Invalid instrument: {instrument}. "
+        f"Must be one of {list(INSTRUMENTS.keys())}"
+    )
 
 
 def get_source_dir(base_dir: str, srcid: str, obs_data: Dict) -> Path:
@@ -237,13 +240,13 @@ def reorganize_extracted_files(
         "M1": "*M1*",  # MOS1 patterns
         "M2": "*M2*"   # MOS2 patterns
     }
-    
+
     # Copy instrument-specific files
     pattern = inst_patterns[instrument]
     for file_path in source_dir.glob(pattern):
         target_path = target_dir / file_path.name
         shutil.copy2(str(file_path), str(target_path))
-        
+
     # Copy common files (RMFs, etc.)
     for file_path in source_dir.glob("*.rmf"):
         target_path = target_dir / file_path.name
@@ -333,9 +336,9 @@ def validate_download_files(
         'spectrum': f'*{inst_suffix}*SRSPEC*.FTZ',
         'background': f'*{inst_suffix}*BGSPEC*.FTZ',
         'arf': f'*{inst_suffix}*ARF*.FTZ',
-        'rmf': f'*.rmf'
+        'rmf': '*.rmf'
     }
-    
+
     validation = {}
     for file_type, pattern in required_patterns.items():
         files = list(dir_path.glob(pattern))
@@ -388,7 +391,7 @@ def download_observation(
                 instrument=[INSTRUMENTS[instrument]]
             )
             extract_all_files(tar_file, output_dir)
-            
+
             # Allow time for file system operations
             reorganize_extracted_files(
                 output_dir, obs_id, instrument=instrument, cleanup=cleanup
@@ -398,7 +401,7 @@ def download_observation(
             # Add small delay before validation to ensure files are settled
             import time
             time.sleep(1)
-            
+
             # Now validate
             validation = validate_download_files(
                 output_dir / LEVEL / instrument,
@@ -408,11 +411,16 @@ def download_observation(
                 status = f"SUCCESS ({instrument})"
             else:
                 missing = [k for k, v in validation.items() if not v]
-                status = f"INCOMPLETE ({instrument}): Missing {', '.join(missing)}"
+                status = (
+                    f"INCOMPLETE ({instrument}): "
+                    f"Missing {', '.join(missing)}"
+                )
 
-            log_download_status(srcid, obs_id, src_num, base_dir, status, obs_data)
+            log_download_status(
+                srcid, obs_id, src_num, base_dir, status, obs_data
+            )
             update_meta_log(obs_data, status, base_dir)
-            
+
         except Exception as e:
             success = False
             status = f"ERROR ({instrument}): {str(e)}"
@@ -426,7 +434,8 @@ def download_observation(
 
 
 def process_downloads(
-        obs_table: List[Dict], base_dir: str, instruments: List[InstrumentType], cleanup: bool = True
+        obs_table: List[Dict], base_dir: str, instruments: List[InstrumentType],
+        cleanup: bool = True
 ) -> None:
     """Process all downloads from the observation table."""
     for obs in obs_table:
@@ -519,7 +528,9 @@ def download_spectra(
             clear_log_file(obs['srcid'], base_dir, obs)
 
     try:
-        process_downloads(obs_table, base_dir, instruments=instruments, cleanup=cleanup)
+        process_downloads(
+            obs_table, base_dir, instruments=instruments, cleanup=cleanup
+        )
         validate_all_downloads(base_dir)  # Add final validation
     except Exception as e:
         print(f"Download failed: {str(e)}")
