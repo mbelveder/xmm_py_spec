@@ -38,6 +38,7 @@ class Source:
                 f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
             )
         else:
+            # Updated pattern to match actual clustered file structure
             pattern = (
                 f"clusters/*/combined_spectrum_grouped_{self.instrument}.pha"
             )
