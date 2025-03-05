@@ -1,12 +1,12 @@
 from pathlib import Path
-from typing import Dict, List, Literal
+from typing import Dict, List
 import subprocess
 from datetime import datetime
 import logging
 import argparse
+from .utils import get_instrument_filenames, InstrumentType
 
 # Add instrument type and mapping
-InstrumentType = Literal["PN", "M1", "M2"]
 INSTRUMENTS = {
     "PN": "PN",
     "M1": "M1",
@@ -178,11 +178,13 @@ def find_spectral_files(
         return []
 
     for inst_dir in inst_dirs:
+        filenames = get_instrument_filenames(instrument, mode="individual")
         files = {
-            'spec': list(inst_dir.glob(f'*{instrument}*SRSPEC*.FTZ')),
-            'bkg': list(inst_dir.glob(f'*{instrument}*BGSPEC*.FTZ')),
-            'rmf': list(inst_dir.glob(f'*{instrument.lower()}*.rmf')),
-            'arf': list(inst_dir.glob(f'*{instrument}*ARF*.FTZ'))
+            'spec': list(inst_dir.glob(filenames['spectrum'])),
+            'bkg': list(inst_dir.glob(filenames['background'])),
+            'rmf': list(inst_dir.glob(filenames['response'])),
+            # ARF pattern stays the same
+            'arf': list(inst_dir.glob('*SRCARF*.FTZ'))
         }
 
         if all(files.values()):
@@ -248,16 +250,6 @@ def combine_source_spectra(
         logging.info(f"Successfully grouped spectra in {src_dir}")
 
     return True
-
-
-def get_instrument_filenames(instrument: InstrumentType) -> Dict[str, str]:
-    """Get instrument-specific filenames for combined spectra."""
-    return {
-        'spectrum': f'combined_spectrum_{instrument}.ds',
-        'background': f'combined_background_{instrument}.ds',
-        'response': f'combined_response_{instrument}.rmf',
-        'grouped': f'combined_spectrum_grouped_{instrument}.pha'
-    }
 
 
 def combine_spectra(

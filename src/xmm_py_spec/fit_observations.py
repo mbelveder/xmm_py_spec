@@ -74,15 +74,24 @@ def _fix_spectrum_paths(spectrum: Path) -> bool:
         fix_spectrum_paths_inplace(spectrum)
         logging.info(f"Successfully fixed paths for {spectrum}")
         return True
+    except OSError as e:
+        if 'truncate' in str(e):
+            # Truncation errors can be ignored as they don't affect fitting
+            logging.debug(f"Ignoring truncation error for {spectrum}")
+            return True
+        logging.error(f"Failed to fix paths in {spectrum}: {e}")
+        return False
     except Exception as e:
         logging.error(f"Failed to fix paths in {spectrum}: {e}")
         return False
 
 
-def _process_spectra(source: Source, base_dir: Path) -> Optional[pd.DataFrame]:
+def _process_spectra(
+        source: Source, base_dir: Path, insturment
+) -> Optional[pd.DataFrame]:
     """Process all spectra for a source."""
     try:
-        results_df = analyze_source(source, base_dir)
+        results_df = analyze_source(source, base_dir, insturment)
         if results_df.empty:
             logging.warning("No results obtained from analysis")
             return None
@@ -127,7 +136,7 @@ def analyze_source_spectra(
                 continue
 
         # Analyze and save results
-        results_df = _process_spectra(source, base_dir)
+        results_df = _process_spectra(source, base_dir, instrument)
         if results_df is not None:
             unique_name = f"{source_id}_{spec_type}_{instrument}"
             output_file = (

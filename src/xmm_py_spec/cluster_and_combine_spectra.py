@@ -10,7 +10,7 @@ The process consists of two main steps:
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Literal
+from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import shutil
 from .combine_spectra import (
@@ -18,12 +18,12 @@ from .combine_spectra import (
 )
 import argparse
 from .logging_config import get_logger, setup_basic_logging
+from .utils import get_instrument_filenames, InstrumentType
 
 # Initialize basic logging configuration
 setup_basic_logging()
 logger = get_logger(__name__)
 
-InstrumentType = Literal["PN", "M1", "M2"]
 INSTRUMENTS = {
     "PN": "PN",
     "M1": "M1",
@@ -298,16 +298,6 @@ def cluster(
         raise
 
 
-def get_instrument_filenames(instrument: InstrumentType) -> Dict[str, str]:
-    """Get instrument-specific filenames for combined spectra."""
-    return {
-        'spectrum': f'combined_spectrum_{instrument}.ds',
-        'background': f'combined_background_{instrument}.ds',
-        'response': f'combined_response_{instrument}.rmf',
-        'grouped': f'combined_spectrum_grouped_{instrument}.pha'
-    }
-
-
 def build_combine_args(
     spec_files: List[Dict[str, List[Path]]],
     source_dir: Path,
@@ -333,7 +323,7 @@ def build_combine_args(
         for _, (param, files) in files_by_type.items()
     ]
 
-    filenames = get_instrument_filenames(instrument)
+    filenames = get_instrument_filenames(instrument, mode="clustered")
     output_path = convert_to_docker_path(source_dir)
     args.extend([
         f"filepha='{output_path}/{filenames['spectrum']}'",

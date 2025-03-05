@@ -125,14 +125,17 @@ def analyze_source(
                 if 'SRSPEC' in spectrum_path.name:
                     obs_path = spectrum_path.parent.parent.parent.parent
                     plot_name = (
-                        f"source_{src_path.name}_obs_{obs_path.name}_fit.png"
+                        f"source_{src_path.name}_obs_{obs_path.name}_fit"
                     )
                 else:
                     # For clustered spectra, use cluster date
                     cluster_date = spectrum_path.parent.name  # Gets YYYY_MM
                     plot_name = (
-                        f"source_{src_path.name}_cluster_{cluster_date}_fit.png"
+                        f"source_{src_path.name}_cluster_{cluster_date}_fit"
                     )
+
+                # Make plot name instrument-specific
+                plot_name = f'{plot_name}_{instrument}.png'
 
                 plot_path = plots_dir / plot_name
                 logger.info(

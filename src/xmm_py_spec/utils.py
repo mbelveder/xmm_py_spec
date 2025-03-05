@@ -1,7 +1,9 @@
 import csv
 from pathlib import Path
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Literal
 import warnings
+
+InstrumentType = Literal["PN", "M1", "M2"]
 
 
 def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
@@ -36,3 +38,25 @@ def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
             )
 
         return list(reader)
+
+
+def get_instrument_filenames(
+    instrument: InstrumentType,
+    mode: Literal["clustered", "individual"] = "individual"
+) -> Dict[str, str]:
+    """Get instrument-specific filenames for spectra."""
+    if mode == "clustered":
+        return {
+            'spectrum': f'combined_spectrum_{instrument}.ds',
+            'background': f'combined_background_{instrument}.ds',
+            'response': f'combined_response_{instrument}.rmf',
+            'grouped': f'combined_spectrum_grouped_{instrument}.pha'
+        }
+    else:  # individual
+        return {
+            'spectrum': f'*{instrument}*SRSPEC*.FTZ',
+            'background': f'*{instrument}*BGSPEC*.FTZ',
+            'response': f'*{instrument.lower()}*.rmf',
+            'arf': f'*{instrument}*SRCARF*.FTZ',  # Added ARF pattern
+            'grouped': f'*{instrument}*grouped.pha'
+        }

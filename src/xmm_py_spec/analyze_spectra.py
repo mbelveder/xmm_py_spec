@@ -7,24 +7,48 @@ from astropy.io import fits
 
 def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
     """Update FITS header keywords to use local paths."""
-    companion_files = {
-        'BACKFILE': 'combined_background_{instrument}.ds',
-        'RESPFILE': 'combined_response_{instrument}.rmf',
-        'ANCRFILE': 'combined_arf_{instrument}.arf'
-    }
+    is_clustered = "combined_spectrum" in str(spectrum_file)
 
     with fits.open(spectrum_file, mode='update') as hdul:
-        # Extract instrument from filename (e.g., combined_spectrum_M1.ds -> M1)
-        instrument = spectrum_file.stem.split('_')[-1]
-
         for hdu in hdul:
-            for key in companion_files:
-                if key in hdu.header:
-                    # Use only the base filename without path
-                    filename = companion_files[key].format(
-                        instrument=instrument
-                    )
-                    hdu.header[key] = filename
+            for key in ['BACKFILE', 'RESPFILE', 'ANCRFILE']:
+                if key not in hdu.header:
+                    continue
+
+                if is_clustered:
+                    # Extract instrument from filename
+                    instrument = spectrum_file.stem.split('_')[-1]
+                    companion_files = {
+                        'BACKFILE': f'combined_background_{instrument}.ds',
+                        'RESPFILE': f'combined_response_{instrument}.rmf',
+                        'ANCRFILE': f'combined_arf_{instrument}.arf'
+                    }
+                    hdu.header[key] = companion_files[key]
+                else:
+                    # e.g., P0022740201M2S002SRSPEC001C
+                    spec_prefix = spectrum_file.stem
+
+                    if key == 'BACKFILE':
+                        new_name = (
+                            spec_prefix.replace('SRSPEC', 'BGSPEC') + '.FTZ'
+                        )
+                    elif key == 'RESPFILE':
+                        # Extract m1/m2/pn
+                        instrument = spec_prefix[11:13].lower()
+                        rmf_files = list(
+                            spectrum_file.parent.glob(f'*{instrument}*.rmf')
+                        )
+                        if not rmf_files:
+                            raise FileNotFoundError(
+                                f"No RMF file found for {instrument}"
+                            )
+                        new_name = rmf_files[0].name
+                    elif key == 'ANCRFILE':
+                        new_name = (
+                            spec_prefix.replace('SRSPEC', 'SRCARF') + '.FTZ'
+                        )
+
+                    hdu.header[key] = new_name
         hdul.flush()
 
 
