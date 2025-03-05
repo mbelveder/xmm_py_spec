@@ -208,7 +208,7 @@ def setup_xspec_environment() -> None:
 def setup_model(model_str: str, rshift: float) -> Model:
     """Setup XSPEC model with initial parameters."""
     model = Model(model_str)
-    model.phabs.nH.values = 1e-2
+    model.phabs.nH.values = 7e-3
     model.phabs.nH.frozen = True
     model.zphabs.Redshift.values = rshift
     model.zpowerlw.Redshift.values = rshift
@@ -289,7 +289,7 @@ def plot_contours(
     ax.set_ylabel('Г')
     ax.set_xscale('log')
     ax.set_xlim(0.1, 10)
-    ax.set_ylim(0.3, 2.5)
+    ax.set_ylim(0, 2.5)
 
     fig.suptitle(title, fontsize=12, y=.95)
     fig.savefig(plot_path, bbox_inches='tight', dpi=300, transparent=True)
