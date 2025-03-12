@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import List, Literal
 import logging
 
-InstrumentType = Literal["PN", "M1", "M2"]
+InstrumentType = Literal["PN", "M1", "M2", "MOS"]
 
 
 @dataclass
@@ -33,12 +33,15 @@ class Source:
             f"({self.instrument}) in {self.source_path}"
         )
 
-        if self.spec_type == "individual":
+        if self.instrument == "MOS":
+            if self.spec_type == "individual":
+                raise ValueError("Individual mode not supported for MOS")
+            pattern = "clusters/*/combined_spectrum_MOS_*.ds"
+        elif self.spec_type == "individual":
             pattern = (
                 f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
             )
         else:
-            # Updated pattern to match actual clustered file structure
             pattern = (
                 f"clusters/*/combined_spectrum_grouped_{self.instrument}.pha"
             )

@@ -10,7 +10,7 @@ download_spectra_full_list:
 download_all_instruments:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_sources_lh.csv --instruments PN M1 M2
 
-download_mos:
+download_m1_m2:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_lh_Ms.csv --instruments M1 M2
 
 combine_spectra:
@@ -19,7 +19,7 @@ combine_spectra:
 combine_spectra_all:
 		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2
 
-combine_spectra_mos:
+combine_spectra_m1_m2:
 		poetry run python -m xmm_py_spec.combine_spectra --instruments M1 M2
 
 combine_spectra_group:
@@ -31,7 +31,7 @@ combine_spectra_group_pn:
 combine_spectra_group_all:
 		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2 --group
 
-combine_spectra_group_mos:
+combine_spectra_group_m1_m2:
 		poetry run python -m xmm_py_spec.combine_spectra --instruments M1 M2 --group
 
 analyze_grouped_spectra:
@@ -40,13 +40,13 @@ analyze_grouped_spectra:
 fit_observations_pn:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN
 
-fit_observations_mos:
+fit_observations_m1_m2:
 		poetry run python -m xmm_py_spec.fit_observations --instruments M1 M2
 
-fit_observations_mos1:
+fit_observations_m1:
 		poetry run python -m xmm_py_spec.fit_observations --instruments M1
 
-fit_observations_mos2:
+fit_observations_m2:
 		poetry run python -m xmm_py_spec.fit_observations --instruments M2
 
 fit_observations_all:
@@ -58,23 +58,29 @@ fit_clustered_observations_all:
 fit_clustered_observations_pn:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN --type clustered
 
-fit_clustered_observations_mos:
+fit_clustered_observations_m1_m2:
 		poetry run python -m xmm_py_spec.fit_observations --instruments M1 M2 --type clustered
 
-fit_clustered_observations_mos1:
+fit_clustered_observations_m1:
 		poetry run python -m xmm_py_spec.fit_observations --instruments M1 --type clustered
 
-fit_clustered_observations_mos2:
+fit_clustered_observations_m2:
 		poetry run python -m xmm_py_spec.fit_observations --instruments M2 --type clustered
+
+fit_clustered_observations_mos:
+		poetry run python -m xmm_py_spec.fit_observations --instruments MOS --type clustered
 
 cluster_and_combine_spectra:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --group
 
-cluster_and_combine_spectra_mos1:
+cluster_and_combine_spectra_m1:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M1 --group
 
-cluster_and_combine_spectra_mos2:
+cluster_and_combine_spectra_m2:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M2 --group
+
+cluster_and_combine_spectra_mos:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument MOS --group
 
 publish:
 		poetry publish --dry-run

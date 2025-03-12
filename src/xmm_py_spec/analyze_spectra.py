@@ -32,11 +32,25 @@ def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
                     continue
 
                 if is_clustered:
-                    instrument = spectrum_file.stem.split('_')[-1]
+                    # Extract both instrument and date suffix if present
+                    parts = spectrum_file.stem.split('_')
+                    if len(parts) > 3 and parts[-2].isdigit():  # MOS_YYYY_MM
+                        instrument = parts[-3]  # MOS
+                        date_suffix = f"_{parts[-2]}_{parts[-1]}"  # _YYYY_MM
+                    else:
+                        instrument = parts[-1]  # M1/M2/PN
+                        date_suffix = ""
+
                     companion_files = {
-                        'BACKFILE': f'combined_background_{instrument}.ds',
-                        'RESPFILE': f'combined_response_{instrument}.rmf',
-                        'ANCRFILE': f'combined_arf_{instrument}.arf'
+                        'BACKFILE': (
+                            f'combined_background_{instrument}{date_suffix}.ds'
+                        ),
+                        'RESPFILE': (
+                            f'combined_response_{instrument}{date_suffix}.rmf'
+                        ),
+                        'ANCRFILE': (
+                            f'combined_arf_{instrument}{date_suffix}.arf'
+                        )
                     }
                     hdu.header[key] = companion_files[key]
                 else:

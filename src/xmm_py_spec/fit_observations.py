@@ -9,11 +9,12 @@ from .analyze_spectra import fix_spectrum_paths_inplace
 import pandas as pd
 from typing import Optional
 
-InstrumentType = Literal["PN", "M1", "M2"]
+InstrumentType = Literal["PN", "M1", "M2", "MOS"]
 INSTRUMENTS = {
     "PN": "PN",
     "M1": "M1",
-    "M2": "M2"
+    "M2": "M2",
+    "MOS": "MOS"  # Add combined MOS mode
 }
 
 
@@ -44,6 +45,11 @@ def _get_required_files(instrument: InstrumentType) -> Dict[str, str]:
             'spectrum': '*M2S*SRSPEC*.FTZ',
             'background': '*M2S*BGSPEC*.FTZ',
             'response': '*m2*.rmf'
+        },
+        "MOS": {
+            'spectrum': '*combined_spectrum_MOS_*.ds',
+            'background': '*combined_background_MOS_*.ds',
+            'response': '*combined_response_MOS_*.rmf'
         }
     }
     return patterns[instrument]
@@ -53,6 +59,10 @@ def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
     """Verify that all required files exist for a spectrum."""
     required = _get_required_files(instrument)
     parent_dir = spectrum.parent
+
+    # For MOS, look in the cluster directory instead of PPS subdir
+    if instrument == "MOS":
+        parent_dir = parent_dir.parent if "PPS" in str(parent_dir) else parent_dir
 
     missing = []
     for file_type, pattern in required.items():
@@ -168,7 +178,7 @@ def main():
         nargs="+",
         choices=list(INSTRUMENTS.keys()),
         default=["PN"],
-        help="Instruments to analyze (default: PN)"
+        help="Instruments to analyze (default: PN, options: PN,M1,M2,MOS)"
     )
     args = parser.parse_args()
 

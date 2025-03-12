@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 import subprocess
 from datetime import datetime
 import logging
@@ -10,7 +10,8 @@ from .utils import get_instrument_filenames, InstrumentType
 INSTRUMENTS = {
     "PN": "PN",
     "M1": "M1",
-    "M2": "M2"
+    "M2": "M2",
+    "MOS": "MOS"  # Add MOS instrument type
 }
 
 
@@ -48,18 +49,48 @@ def run_spcombine(args: List[str]) -> bool:
         return False
 
 
-def run_ftgrouppha(source_dir: Path, instrument: InstrumentType) -> bool:
-    """Run ftgrouppha inside container with TTY allocation."""
+def run_ftgrouppha(
+    source_dir: Path,
+    instrument: InstrumentType,
+    input_filename: Optional[str] = None
+) -> bool:
+    """
+    Run ftgrouppha inside container with TTY allocation.
+    
+    Args:
+        source_dir: Directory containing the spectra
+        instrument: Instrument type (PN, M1, M2, or MOS)
+        input_filename: Optional custom input filename
+    """
     try:
-        spec_file = convert_to_docker_path(
-            source_dir / f'combined_spectrum_{instrument}.ds'
-        )
-        bkg_file = convert_to_docker_path(
-            source_dir / f'combined_background_{instrument}.ds'
-        )
-        out_file = convert_to_docker_path(
-            source_dir / f'combined_spectrum_grouped_{instrument}.pha'
-        )
+        # Handle input spectrum file
+        if input_filename:
+            base_name = input_filename.rsplit(".", 1)[0]
+            spec_file = convert_to_docker_path(source_dir / input_filename)
+            out_file = convert_to_docker_path(
+                source_dir / f'{base_name}_grouped.pha'
+            )
+            # For MOS, use matching background filename pattern
+            if instrument == "MOS":
+                bkg_name = base_name.replace('spectrum', 'background')
+                bkg_file = convert_to_docker_path(
+                    source_dir / f'{bkg_name}.ds'
+                )
+            else:
+                bkg_file = convert_to_docker_path(
+                    source_dir / f'combined_background_{instrument}.ds'
+                )
+        else:
+            # Default filename patterns
+            spec_file = convert_to_docker_path(
+                source_dir / f'combined_spectrum_{instrument}.ds'
+            )
+            out_file = convert_to_docker_path(
+                source_dir / f'combined_spectrum_grouped_{instrument}.pha'
+            )
+            bkg_file = convert_to_docker_path(
+                source_dir / f'combined_background_{instrument}.ds'
+            )
 
         cmd = [
             "docker", "exec", "-it", "xmm_py_spec_container",
@@ -128,7 +159,8 @@ def convert_to_docker_path(path: Path) -> str:
 def build_combine_args(
         spec_files: List[Dict[str, List[Path]]],
         source_dir: Path,
-        instrument: InstrumentType
+        instrument: InstrumentType,
+        output_filenames: Optional[Dict[str, str]] = None
 ) -> List[str]:
     """Build epicspeccombine arguments with docker paths."""
     # Initialize with empty lists for each file type
@@ -150,7 +182,10 @@ def build_combine_args(
         for _, (param, files) in files_by_type.items()
     ]
 
-    filenames = get_instrument_filenames(instrument)
+    filenames = (
+        output_filenames if output_filenames 
+        else get_instrument_filenames(instrument)
+    )
     output_path = convert_to_docker_path(source_dir)
     args.extend([
         f"filepha='{output_path}/{filenames['spectrum']}'",
@@ -229,11 +264,29 @@ def combine_source_spectra(
     src_dir: Path,
     spec_files: List[Dict[str, List[Path]]],
     group: bool,
-    instrument: InstrumentType = "PN"
+    instrument: InstrumentType = "PN",
+    output_filenames: Optional[Dict[str, str]] = None
 ) -> bool:
-    """Combine and optionally group spectra for a single source."""
-    # Build and run combine command
-    args = build_combine_args(spec_files, src_dir, instrument)
+    """
+    Combine and optionally group spectra for a single source.
+
+    Args:
+        src_dir: Directory containing source spectra
+        spec_files: List of dictionaries containing spectral file paths
+        group: Whether to group the combined spectra
+        instrument: Instrument type (PN, M1, M2, or MOS)
+        output_filenames: Optional custom filenames for output files
+
+    Returns:
+        bool: True if combination successful, False otherwise
+    """
+    # Build and run combine command with custom filenames if provided
+    args = build_combine_args(
+        spec_files,
+        src_dir,
+        instrument,
+        output_filenames=output_filenames
+    )
     save_debug_command(args, src_dir)
 
     if not run_spcombine(args):
@@ -244,7 +297,17 @@ def combine_source_spectra(
 
     # Handle grouping if requested
     if group:
-        if not run_ftgrouppha(src_dir, instrument):
+        # Use custom output filename for grouped spectra if provided
+        if output_filenames and 'spectrum' in output_filenames:
+            group_success = run_ftgrouppha(
+                src_dir,
+                instrument,
+                output_filenames['spectrum']
+            )
+        else:
+            group_success = run_ftgrouppha(src_dir, instrument)
+
+        if not group_success:
             logging.error(f"Failed to group spectra for {src_dir}")
             return False
         logging.info(f"Successfully grouped spectra in {src_dir}")

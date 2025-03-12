@@ -27,7 +27,8 @@ logger = get_logger(__name__)
 INSTRUMENTS = {
     "PN": "PN",
     "M1": "M1",
-    "M2": "M2"
+    "M2": "M2",
+    "MOS": "MOS"  # Combined MOS1+MOS2 mode
 }
 
 
@@ -372,6 +373,76 @@ def _process_single_cluster(
     return cluster_id, combined_path
 
 
+def combine_mos_spectra(
+    cluster: Dict,
+    source_user_id: str,
+    group: bool = False
+) -> Optional[Tuple[str, Path]]:
+    """
+    Combine MOS1 and MOS2 spectra within a cluster.
+    
+    Args:
+        cluster: Cluster dictionary containing observation data
+        source_user_id: Source identifier
+        group: Whether to group the combined spectra
+    
+    Returns:
+        Tuple of (cluster_id, combined_spectrum_path) or None if failed
+    """
+    if not cluster.get('cluster_dir') or not cluster.get('start_date'):
+        logger.warning("Skipping MOS combination - missing cluster data")
+        return None
+
+    cluster_id = cluster['start_date'].strftime('%Y_%m')
+    logger.info(f"Combining MOS spectra for cluster {cluster_id}")
+
+    # Get spectral files for both MOS instruments
+    m1_files = find_spectral_files(cluster['cluster_dir'], "M1")
+    m2_files = find_spectral_files(cluster['cluster_dir'], "M2")
+
+    if not m1_files and not m2_files:
+        logger.warning("No MOS spectral files found in cluster")
+        return None
+
+    # Log observation counts
+    logger.info(
+        f"M1 observations: {len(m1_files)} "
+        f"({', '.join(f'obs{i+1}' for i in range(len(m1_files)))})"
+    )
+    logger.info(
+        f"M2 observations: {len(m2_files)} "
+        f"({', '.join(f'obs{i+1}' for i in range(len(m2_files)))})"
+    )
+
+    # Combine all MOS files
+    all_mos_files = m1_files + m2_files
+    if not all_mos_files:
+        logger.warning("No MOS files to combine")
+        return None
+
+    # Set up MOS-specific filenames
+    mos_filenames = {
+        'spectrum': f'combined_spectrum_MOS_{cluster_id}.ds',
+        'background': f'combined_background_MOS_{cluster_id}.ds',
+        'response': f'combined_response_MOS_{cluster_id}.rmf'
+    }
+
+    success = combine_source_spectra(
+        cluster['cluster_dir'],
+        all_mos_files,
+        group,
+        instrument="MOS",
+        output_filenames=mos_filenames
+    )
+
+    if not success:
+        logger.error("Failed to combine MOS spectra")
+        return None
+
+    combined_path = cluster['cluster_dir'] / mos_filenames['spectrum']
+    return cluster_id, combined_path
+
+
 def combine_clustered(
     clusters: List[Dict],
     source_user_id: str,
@@ -387,9 +458,17 @@ def combine_clustered(
 
     try:
         for i, cluster in enumerate(clusters, 1):
-            result = _process_single_cluster(
-                cluster, i, len(clusters), group, instrument
-            )
+            if instrument == "MOS":
+                result = combine_mos_spectra(
+                    cluster,
+                    source_user_id,
+                    group
+                )
+            else:
+                result = _process_single_cluster(
+                    cluster, i, len(clusters), group, instrument
+                )
+
             if result:
                 cluster_id, path = result
                 combined_spectra[cluster_id] = path
@@ -498,7 +577,7 @@ def main():
         '--instrument',
         choices=list(INSTRUMENTS.keys()),
         default="PN",
-        help="Instrument to process (default: PN)"
+        help="Instrument to process (default: PN, options: PN,M1,M2,MOS)"
     )
 
     args = parser.parse_args()
