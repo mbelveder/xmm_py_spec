@@ -52,6 +52,9 @@ fit_observations_mos2:
 fit_observations_all:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2
 
+fit_clustered_observations_all:
+		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2 --type clustered
+
 fit_clustered_observations_pn:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN --type clustered
 
