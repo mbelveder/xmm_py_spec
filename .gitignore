@@ -33,3 +33,4 @@ config/
 *.log
 notebooks/
 sas_docker_setup.md
+.github/copilot-instructions.md
