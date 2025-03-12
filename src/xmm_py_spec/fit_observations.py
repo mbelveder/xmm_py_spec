@@ -62,7 +62,9 @@ def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
 
     # For MOS, look in the cluster directory instead of PPS subdir
     if instrument == "MOS":
-        parent_dir = parent_dir.parent if "PPS" in str(parent_dir) else parent_dir
+        parent_dir = (
+            parent_dir.parent if "PPS" in str(parent_dir) else parent_dir
+        )
 
     missing = []
     for file_type, pattern in required.items():

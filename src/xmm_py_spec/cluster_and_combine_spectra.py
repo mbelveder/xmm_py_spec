@@ -375,17 +375,15 @@ def _process_single_cluster(
 
 def combine_mos_spectra(
     cluster: Dict,
-    source_user_id: str,
     group: bool = False
 ) -> Optional[Tuple[str, Path]]:
     """
     Combine MOS1 and MOS2 spectra within a cluster.
-    
+
     Args:
         cluster: Cluster dictionary containing observation data
-        source_user_id: Source identifier
         group: Whether to group the combined spectra
-    
+
     Returns:
         Tuple of (cluster_id, combined_spectrum_path) or None if failed
     """

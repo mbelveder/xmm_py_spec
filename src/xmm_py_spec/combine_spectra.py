@@ -56,7 +56,7 @@ def run_ftgrouppha(
 ) -> bool:
     """
     Run ftgrouppha inside container with TTY allocation.
-    
+
     Args:
         source_dir: Directory containing the spectra
         instrument: Instrument type (PN, M1, M2, or MOS)
@@ -183,7 +183,7 @@ def build_combine_args(
     ]
 
     filenames = (
-        output_filenames if output_filenames 
+        output_filenames if output_filenames
         else get_instrument_filenames(instrument)
     )
     output_path = convert_to_docker_path(source_dir)
