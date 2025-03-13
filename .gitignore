@@ -9,7 +9,6 @@ __pycache__/
 *.py[cod]
 
 # Poetry files
-poetry.lock
 .pytest_cache/
 
 # OS files
