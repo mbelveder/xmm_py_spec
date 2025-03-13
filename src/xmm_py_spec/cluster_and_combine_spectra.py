@@ -356,20 +356,27 @@ def _process_single_cluster(
         logger.warning(f"No complete spectral sets in cluster {index}")
         return None
 
-    if not combine_source_spectra(
+    # Set up instrument-specific filenames with cluster ID
+    cluster_id = cluster['start_date'].strftime('%Y_%m')
+    output_filenames = {
+        'spectrum': f'combined_spectrum_{instrument}_{cluster_id}.ds',
+        'background': f'combined_background_{instrument}_{cluster_id}.ds',
+        'response': f'combined_response_{instrument}_{cluster_id}.rmf'
+    }
+
+    success = combine_source_spectra(
         cluster['cluster_dir'],
         spec_files,
         group,
-        instrument=instrument
-    ):
+        instrument=instrument,
+        output_filenames=output_filenames
+    )
+
+    if not success:
         logger.error(f"Failed to combine cluster {index}")
         return None
 
-    # Use correct filename
-    filenames = get_instrument_filenames(instrument)
-    cluster_id = cluster['start_date'].strftime('%Y_%m')
-    combined_path = cluster['cluster_dir'] / filenames['spectrum']
-
+    combined_path = cluster['cluster_dir'] / output_filenames['spectrum']
     return cluster_id, combined_path
 
 
@@ -459,7 +466,6 @@ def combine_clustered(
             if instrument == "MOS":
                 result = combine_mos_spectra(
                     cluster,
-                    source_user_id,
                     group
                 )
             else:
