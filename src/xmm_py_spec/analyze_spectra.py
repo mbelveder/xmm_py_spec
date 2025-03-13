@@ -5,7 +5,7 @@ import xspec
 from astropy.io import fits
 import argparse
 from .analyze_spectral_variability import ChangeDir
-from .models import setup_model
+# from .models import setup_model
 
 
 def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
@@ -51,13 +51,13 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
             s.ignore("**-0.3 11.0-**")
 
             # Load model
-            model_str = 'ph*zph*zpo'
-            # model_str = 'powerlaw'
-            # _ = xspec.Model(model_str)
+            # model_str = 'ph*zph*zpo'
             # TODO: replace hardcoded redshift
-            model = setup_model(model_str, rshift=0.99)
-            model.zphabs.nH.values = 0
-            model.zphabs.nH.frozen = True
+            # model = setup_model(model_str, rshift=0.99)
+            # model.zphabs.nH.values = 0
+            # model.zphabs.nH.frozen = True
+            model_str = 'powerlaw'
+            _ = xspec.Model(model_str)
             logging.info("Loaded model")
 
             # Log spectrum details
@@ -80,7 +80,8 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
             with open(session_path, 'a') as f:
                 f.write(
                     '\ncpd /xw\nsetpl en\nsetpl r 10 10\nquery yes'
-                    '\nfit\nthaw 2\nfit\npl eeufs\nshow all'
+                    '\nfit\npl eeufs\nshow all'
+                    # '\nfit\nthaw 2\nfit\npl eeufs\nshow all'
                 )
 
         return True
