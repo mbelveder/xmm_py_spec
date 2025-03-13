@@ -1,63 +1,30 @@
 from pathlib import Path
 import logging
-from typing import List
+from typing import List, Optional
 import xspec
 from astropy.io import fits
-
-
-def get_companion_filename(
-    spec_prefix: str, file_type: str, spectrum_file: Path
-) -> str:
-    """Get companion filename based on file type."""
-    if file_type == 'BACKFILE':
-        return spec_prefix.replace('SRSPEC', 'BGSPEC') + '.FTZ'
-    elif file_type == 'RESPFILE':
-        instrument = spec_prefix[11:13].lower()
-        rmf_files = list(spectrum_file.parent.glob(f'*{instrument}*.rmf'))
-        if not rmf_files:
-            raise FileNotFoundError(f"No RMF file found for {instrument}")
-        return rmf_files[0].name
-    else:  # ANCRFILE
-        return spec_prefix.replace('SRSPEC', 'SRCARF') + '.FTZ'
+import argparse
+from .analyze_spectral_variability import ChangeDir
+from .models import setup_model
 
 
 def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
-    """Update FITS header keywords to use local paths."""
-    is_clustered = "combined_spectrum" in str(spectrum_file)
+    """Update FITS header keywords to use local paths.
 
+    Args:
+        spectrum_file: Path to spectrum file
+        spectra_type: Type of spectra being processed
+    """
     with fits.open(spectrum_file, mode='update') as hdul:
         for hdu in hdul:
             for key in ['BACKFILE', 'RESPFILE', 'ANCRFILE']:
                 if key not in hdu.header:
                     continue
 
-                if is_clustered:
-                    # Extract both instrument and date suffix if present
-                    parts = spectrum_file.stem.split('_')
-                    if len(parts) > 3 and parts[-2].isdigit():  # MOS_YYYY_MM
-                        instrument = parts[-3]  # MOS
-                        date_suffix = f"_{parts[-2]}_{parts[-1]}"  # _YYYY_MM
-                    else:
-                        instrument = parts[-1]  # M1/M2/PN
-                        date_suffix = ""
+                # Get just the filename from the full path
+                current_path = Path(hdu.header[key])
+                hdu.header[key] = current_path.name
 
-                    companion_files = {
-                        'BACKFILE': (
-                            f'combined_background_{instrument}{date_suffix}.ds'
-                        ),
-                        'RESPFILE': (
-                            f'combined_response_{instrument}{date_suffix}.rmf'
-                        ),
-                        'ANCRFILE': (
-                            f'combined_arf_{instrument}{date_suffix}.arf'
-                        )
-                    }
-                    hdu.header[key] = companion_files[key]
-                else:
-                    spec_prefix = spectrum_file.stem
-                    hdu.header[key] = get_companion_filename(
-                        spec_prefix, key, spectrum_file
-                    )
         hdul.flush()
 
 
@@ -71,41 +38,50 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
         xspec.Xset.chatter = 10
         xspec.Fit.statMethod = "cstat"
 
-        fix_spectrum_paths_inplace(spectrum_path)
+        with ChangeDir(spectrum_path.parent):
+            fix_spectrum_paths_inplace(spectrum_file=spectrum_path.name)
 
-        # Cleanup existing session
-        session_path = spectrum_path.parent / f"{spectrum_path.stem}.xcm"
-        if session_path.exists():
-            logging.info(f"Removing existing session file: {session_path}")
-            session_path.unlink()
+            # Load single spectrum - use filename only
+            # since we're in correct dir
+            s = xspec.Spectrum(str(spectrum_path.name))
+            logging.info(f"Spectrum loaded: {s.fileName}")
 
-        # Load single spectrum
-        s = xspec.Spectrum(str(spectrum_path))
-        logging.info(f"Spectrum loaded: {s.fileName}")
+            # Setup basic parameters
+            s.ignore("bad")
+            s.ignore("**-0.3 11.0-**")
 
-        # Setup basic parameters
-        s.ignore("bad")
-        s.ignore("**-0.3 11.0-**")
+            # Load model
+            model_str = 'ph*zph*zpo'
+            # model_str = 'powerlaw'
+            # _ = xspec.Model(model_str)
+            # TODO: replace hardcoded redshift
+            model = setup_model(model_str, rshift=0.99)
+            model.zphabs.nH.values = 0
+            model.zphabs.nH.frozen = True
+            logging.info("Loaded model")
 
-        # Load model
-        _ = xspec.Model("powerlaw")
-        logging.info("Loaded powerlaw model")
-
-        # Log spectrum details
-        logging.info(
-            f"Energy range: {s.energies[0][0]:.2f}-{s.energies[-1][1]:.2f} keV"
-        )
-
-        # Save session
-        xspec.Xset.save(str(session_path), info='a')
-        logging.info(f"Session saved to: {session_path}")
-
-        # Append plotting commands to the session file
-        with open(session_path, 'a') as f:
-            f.write(
-                '\ncpd /xw\nsetpl en\nsetpl r 10 10\nquery yes'
-                '\nfit\npl eeufs\nshow all'
+            # Log spectrum details
+            logging.info(
+                "Energy range: "
+                f"{s.energies[0][0]:.2f}-{s.energies[-1][1]:.2f} keV"
             )
+
+            # Save session - ensure clean state by removing existing file
+            session_path = Path(
+                f"{spectrum_path.stem}_{model_str.replace('*', '_')}.xcm"
+            )
+            if session_path.exists():
+                session_path.unlink()
+            xspec.Xset.save(str(session_path), info='a')
+            logging.info(f"Session saved to: {session_path}")
+
+            # Append plotting commands to the session file
+            # TODO: shoul differ for mo1 and mo2
+            with open(session_path, 'a') as f:
+                f.write(
+                    '\ncpd /xw\nsetpl en\nsetpl r 10 10\nquery yes'
+                    '\nfit\nthaw 2\nfit\npl eeufs\nshow all'
+                )
 
         return True
 
@@ -115,32 +91,90 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
 
 
 def find_grouped_spectra(
-        base_dir: str = "data/downloaded_spectra"
+        base_dir: str = "data/downloaded_spectra",
+        source_id: Optional[str] = None
 ) -> List[Path]:
-    """Find one grouped spectrum per source directory."""
+    """
+    Find grouped spectra in both regular and clustered directories.
+
+    Args:
+        base_dir: Base directory containing source directories
+        source_id: Optional source ID to filter results
+
+    Returns:
+        List of paths to grouped spectrum files (.pha)
+    """
     base_path = Path(base_dir)
     spectra = []
+    logging.info(f"Searching for grouped spectra in {base_path}")
 
     # Process each source directory
     for src_dir in base_path.iterdir():
         if not src_dir.is_dir():
             continue
 
-        # Look for combined spectrum in source directory
-        spectrum = src_dir / "combined_spectrum_grouped.pha"
-        if spectrum.exists():
-            spectra.append(spectrum)
+        # Filter by source ID if provided
+        if source_id and src_dir.name != source_id:
+            continue
+
+        logging.info(f"Checking source directory: {src_dir}")
+
+        # Check clusters directory
+        clusters_dir = src_dir / "clusters"
+        if clusters_dir.exists():
+            logging.info(f"Found clusters directory: {clusters_dir}")
+            for cluster_dir in clusters_dir.iterdir():
+                if not cluster_dir.is_dir():
+                    continue
+
+                logging.info(f"Searching in cluster: {cluster_dir}")
+                pattern = "combined_spectrum_*_*_*_grouped.pha"
+                # Match pattern:
+                # combined_spectrum_{INSTRUMENT}_{YYYY}_{MM}_grouped.pha
+                cluster_spectrum = list(cluster_dir.glob(pattern))
+                if cluster_spectrum:
+                    spectra.extend(cluster_spectrum)
+                    logging.info(
+                        f"Found clustered spectrum: {cluster_spectrum[0].name} "
+                        f"in {cluster_dir}"
+                    )
+                else:
+                    logging.info(
+                        f"No files matching '{pattern}' found in {cluster_dir}"
+                    )
+
+                # Log directory contents for debugging
+                logging.debug("Directory contents:")
+                for item in cluster_dir.iterdir():
+                    logging.debug(f"  {item.name}")
         else:
-            logging.warning(f"No grouped spectrum found in {src_dir}")
+            logging.debug(f"No clusters directory in {src_dir}")
+
+    if not spectra:
+        logging.warning(f"No grouped spectra found in {base_dir}")
+        logging.debug("Base directory structure:")
+        for p in sorted(base_path.rglob("*")):
+            rel_path = p.relative_to(base_path)
+            file_type = 'D' if p.is_dir() else 'F'
+            logging.debug(f"  {file_type} {rel_path}")
 
     return spectra
 
 
-def analyze_spectra(base_dir: str = "data/downloaded_spectra") -> None:
-    """Analyze all grouped spectra using PyXspec."""
+def analyze_spectra(
+    base_dir: str = "data/clustered_spectra",  # Changed from downloaded_spectra
+    source_id: Optional[str] = None
+) -> None:
+    """
+    Analyze all grouped spectra using PyXspec.
+
+    Args:
+        base_dir: Base directory containing source directories
+        source_id: Optional source ID to analyze
+    """
     logging.info("Starting spectral analysis...")
 
-    spectra = find_grouped_spectra(base_dir)
+    spectra = find_grouped_spectra(base_dir, source_id)
     if not spectra:
         logging.warning("No grouped spectra found")
         return
@@ -153,11 +187,25 @@ def analyze_spectra(base_dir: str = "data/downloaded_spectra") -> None:
 
 def main():
     """Main entry point with basic logging configuration."""
+    parser = argparse.ArgumentParser(
+        description="Analyze XMM-Newton spectral files."
+    )
+    parser.add_argument(
+        "--base-dir",
+        default="data/clustered_spectra",  # Changed from downloaded_spectra
+        help="Base directory for spectra"
+    )
+    parser.add_argument(
+        "--source",
+        help="Source ID to analyze (default: analyze all)"
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    analyze_spectra()
+    analyze_spectra(args.base_dir, args.source)
 
 
 if __name__ == "__main__":
