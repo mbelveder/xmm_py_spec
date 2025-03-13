@@ -37,6 +37,9 @@ combine_spectra_group_m1_m2:
 analyze_grouped_spectra:
 		poetry run python -m xmm_py_spec.analyze_spectra
 
+analyze_grouped_spectra_5359:
+		poetry run python -m xmm_py_spec.analyze_spectra --source 201237001010017_5359
+
 fit_observations_pn:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN
 
