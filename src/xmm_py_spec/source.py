@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Literal
+from typing import List, Literal, Optional
 import logging
 
 InstrumentType = Literal["PN", "M1", "M2", "MOS"]
@@ -15,6 +15,7 @@ class Source:
     spec_type: Literal["individual", "clustered"] = "individual"
     observations: List[Path] = None
     instrument: InstrumentType = "PN"
+    gap_threshold: Optional[int] = None
 
     def __post_init__(self):
         """Initialize source paths and load observations."""
@@ -33,17 +34,20 @@ class Source:
             f"({self.instrument}) in {self.source_path}"
         )
 
+        gap_suffix = f"_gap{self.gap_threshold}" if self.gap_threshold else ""
+
         if self.instrument == "MOS":
             if self.spec_type == "individual":
                 raise ValueError("Individual mode not supported for MOS")
-            pattern = "clusters/*/combined_spectrum_MOS_*.ds"
+            pattern = f"clusters/*/combined_spectrum_MOS_*{gap_suffix}.ds"
         elif self.spec_type == "individual":
             pattern = (
                 f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
             )
         else:
             pattern = (
-                f"clusters/*/combined_spectrum_grouped_{self.instrument}.pha"
+                "clusters/*/combined_spectrum"
+                f"_{self.instrument}*{gap_suffix}.ds"
             )
 
         spectra = sorted(self.source_path.glob(pattern))
