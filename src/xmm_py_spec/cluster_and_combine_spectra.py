@@ -340,7 +340,8 @@ def _process_single_cluster(
     index: int,
     total: int,
     group: bool,
-    instrument: InstrumentType = "PN"
+    instrument: InstrumentType = "PN",
+    gap_threshold: int = 30
 ) -> Optional[Tuple[str, Path]]:
     """Process a single cluster and return its combined spectrum path."""
     if not cluster.get('cluster_dir') or not cluster.get('start_date'):
@@ -356,12 +357,13 @@ def _process_single_cluster(
         logger.warning(f"No complete spectral sets in cluster {index}")
         return None
 
-    # Set up instrument-specific filenames with cluster ID
+    # Set up instrument-specific filenames with cluster ID and gap threshold
     cluster_id = cluster['start_date'].strftime('%Y_%m')
+    id_suffix = f'_{instrument}_{cluster_id}_gap{gap_threshold}'
     output_filenames = {
-        'spectrum': f'combined_spectrum_{instrument}_{cluster_id}.ds',
-        'background': f'combined_background_{instrument}_{cluster_id}.ds',
-        'response': f'combined_response_{instrument}_{cluster_id}.rmf'
+        'spectrum': f'combined_spectrum{id_suffix}.ds',
+        'background': f'combined_background{id_suffix}.ds',
+        'response': f'combined_response{id_suffix}.rmf'
     }
 
     success = combine_source_spectra(
@@ -369,7 +371,8 @@ def _process_single_cluster(
         spec_files,
         group,
         instrument=instrument,
-        output_filenames=output_filenames
+        output_filenames=output_filenames,
+        gap_threshold=gap_threshold
     )
 
     if not success:
@@ -382,6 +385,7 @@ def _process_single_cluster(
 
 def combine_mos_spectra(
     cluster: Dict,
+    gap_threshold: int = 30,
     group: bool = False
 ) -> Optional[Tuple[str, Path]]:
     """
@@ -389,6 +393,7 @@ def combine_mos_spectra(
 
     Args:
         cluster: Cluster dictionary containing observation data
+        gap_threshold: Maximum days between observations in same cluster
         group: Whether to group the combined spectra
 
     Returns:
@@ -425,11 +430,12 @@ def combine_mos_spectra(
         logger.warning("No MOS files to combine")
         return None
 
-    # Set up MOS-specific filenames
+    # Set up MOS-specific filenames with gap threshold
+    id_suffix = f'_{cluster_id}_gap{gap_threshold}'
     mos_filenames = {
-        'spectrum': f'combined_spectrum_MOS_{cluster_id}.ds',
-        'background': f'combined_background_MOS_{cluster_id}.ds',
-        'response': f'combined_response_MOS_{cluster_id}.rmf'
+        'spectrum': f'combined_spectrum_MOS{id_suffix}.ds',
+        'background': f'combined_background_MOS{id_suffix}.ds',
+        'response': f'combined_response_MOS{id_suffix}.rmf'
     }
 
     success = combine_source_spectra(
@@ -437,7 +443,8 @@ def combine_mos_spectra(
         all_mos_files,
         group,
         instrument="MOS",
-        output_filenames=mos_filenames
+        output_filenames=mos_filenames,
+        gap_threshold=gap_threshold
     )
 
     if not success:
@@ -452,7 +459,8 @@ def combine_clustered(
     clusters: List[Dict],
     source_user_id: str,
     instrument: InstrumentType = "PN",
-    group: bool = False
+    group: bool = False,
+    gap_threshold: int = 30
 ) -> Dict[str, Path]:
     """Combine clustered observations using epicspeccombine."""
     if not clusters:
@@ -466,11 +474,12 @@ def combine_clustered(
             if instrument == "MOS":
                 result = combine_mos_spectra(
                     cluster,
-                    group
+                    gap_threshold=gap_threshold,
+                    group=group
                 )
             else:
                 result = _process_single_cluster(
-                    cluster, i, len(clusters), group, instrument
+                    cluster, i, len(clusters), group, instrument, gap_threshold
                 )
 
             if result:
@@ -498,7 +507,7 @@ def cluster_and_combine_spectra(
     spectra_dir: Path,
     output_dir: Path,
     instrument: InstrumentType = "PN",
-    gap_threshold: int = 90,
+    gap_threshold: int = 30,
     group: bool = False
 ) -> Dict[str, Path]:
     """Main function that orchestrates clustering and combination."""
@@ -521,7 +530,7 @@ def cluster_and_combine_spectra(
             return {}
 
         combined = combine_clustered(
-            clusters, source_user_id, instrument, group
+            clusters, source_user_id, instrument, group, gap_threshold
         )
 
         if not combined:
@@ -564,7 +573,7 @@ def main():
     parser.add_argument(
         '--gap-threshold',
         type=int,
-        default=90,
+        default=30,
         help="Maximum days between observations in same cluster"
     )
     parser.add_argument(
@@ -604,7 +613,8 @@ def main():
                 clusters=clusters,
                 source_user_id=args.source_user_id,
                 instrument=args.instrument,
-                group=args.group
+                group=args.group,
+                gap_threshold=args.gap_threshold
             )
             logger.info(
                 f"Successfully combined {len(combined)} clusters"
