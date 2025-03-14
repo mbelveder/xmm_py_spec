@@ -119,9 +119,20 @@ def analyze_source_spectra(
     params: dict,
     spec_type: Literal["individual", "clustered"],
     base_dir: Path,
+    gap_threshold: Optional[int] = None,
     instruments: List[InstrumentType] = None
 ) -> None:
-    """Analyze individual or clustered spectra for a source."""
+    """
+    Analyze individual or clustered spectra for a source.
+
+    Args:
+        source_id: Source identifier
+        params: Source parameters
+        spec_type: Type of spectra to analyze
+        base_dir: Base directory for data
+        gap_threshold: Gap threshold for clustered spectra
+        instruments: List of instruments to analyze
+    """
     instruments = instruments or ["PN"]
 
     for instrument in instruments:
@@ -137,7 +148,8 @@ def analyze_source_spectra(
             redshift=params["redshift"],
             base_path=spec_path,
             spec_type=spec_type,
-            instrument=instrument
+            instrument=instrument,
+            gap_threshold=gap_threshold
         )
 
         # Process spectra files
@@ -150,7 +162,8 @@ def analyze_source_spectra(
         # Analyze and save results
         results_df = _process_spectra(source, base_dir, instrument)
         if results_df is not None:
-            unique_name = f"{source_id}_{spec_type}_{instrument}"
+            gap_suffix = f"_gap{gap_threshold}" if gap_threshold else ""
+            unique_name = f"{source_id}_{spec_type}_{instrument}{gap_suffix}"
             output_file = (
                 base_dir / f"source_{unique_name}_results.csv"
             )
@@ -182,6 +195,12 @@ def main():
         default=["PN"],
         help="Instruments to analyze (default: PN, options: PN,M1,M2,MOS)"
     )
+    parser.add_argument(
+        "--gap-threshold",
+        type=int,
+        default=30,
+        help="Gap threshold for clustered spectra"
+    )
     args = parser.parse_args()
 
     base_dir = Path("data")
@@ -202,7 +221,9 @@ def main():
     for source_id, params in sources.items():
         logging.info(f"\nProcessing source: {source_id}")
         analyze_source_spectra(
-            source_id, params, args.type, base_dir, args.instruments
+            source_id, params, args.type, base_dir,
+            gap_threshold=args.gap_threshold,
+            instruments=args.instruments
         )
 
 
