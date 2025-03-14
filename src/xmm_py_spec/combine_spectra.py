@@ -51,8 +51,7 @@ def run_spcombine(args: List[str]) -> bool:
 
 def run_ftgrouppha(
     source_dir: Path,
-    instrument: InstrumentType,
-    input_filename: Optional[str] = None
+    input_filename: Optional[str] = None,
 ) -> bool:
     """
     Run ftgrouppha inside container with TTY allocation.
@@ -60,6 +59,7 @@ def run_ftgrouppha(
     Args:
         source_dir: Directory containing the spectra
         instrument: Instrument type (PN, M1, M2, or MOS)
+        gap_threshold: Gap threshold used for spectrum combination
         input_filename: Optional custom input filename
     """
     try:
@@ -71,25 +71,10 @@ def run_ftgrouppha(
                 source_dir / f'{base_name}_grouped.pha'
             )
             # For MOS, use matching background filename pattern
-            if instrument == "MOS":
-                bkg_name = base_name.replace('spectrum', 'background')
-                bkg_file = convert_to_docker_path(
-                    source_dir / f'{bkg_name}.ds'
-                )
-            else:
-                bkg_file = convert_to_docker_path(
-                    source_dir / f'combined_background_{instrument}.ds'
-                )
-        else:
-            # Default filename patterns
-            spec_file = convert_to_docker_path(
-                source_dir / f'combined_spectrum_{instrument}.ds'
-            )
-            out_file = convert_to_docker_path(
-                source_dir / f'combined_spectrum_grouped_{instrument}.pha'
-            )
+            # if instrument == "MOS":
+            bkg_name = base_name.replace('spectrum', 'background')
             bkg_file = convert_to_docker_path(
-                source_dir / f'combined_background_{instrument}.ds'
+                source_dir / f'{bkg_name}.ds'
             )
 
         cmd = [
@@ -102,6 +87,9 @@ def run_ftgrouppha(
             "groupscale=15",
             "clobber=yes"
         ]
+
+        # Save command for debugging before execution
+        save_debug_command(cmd[5:], source_dir, command_type="group")
 
         subprocess.run(
             cmd,
@@ -117,16 +105,32 @@ def run_ftgrouppha(
         return False
 
 
-def save_debug_command(args: List[str], source_dir: Path) -> Path:
-    """Save combine command to debug file."""
+def save_debug_command(
+    args: List[str],
+    source_dir: Path,
+    command_type: str = "combine"
+) -> Path:
+    """Save command to debug file.
+
+    Args:
+        args: Command arguments
+        source_dir: Directory to save debug files
+        command_type: Type of command ('combine' or 'group')
+
+    Returns:
+        Path to debug file
+    """
     debug_dir = source_dir / 'debug'
     debug_dir.mkdir(exist_ok=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    debug_file = debug_dir / f'combine_command_{timestamp}.txt'
+    debug_file = debug_dir / f'{command_type}_command_{timestamp}.txt'
 
     # Format command for readability
-    command = "epicspeccombine \\\n" + "\\\n ".join(args)
+    if command_type == "combine":
+        command = "epicspeccombine \\\n" + "\\\n ".join(args)
+    else:
+        command = "ftgrouppha \\\n" + "\\\n ".join(args)
 
     with open(debug_file, 'w') as f:
         f.write(command)
@@ -234,6 +238,7 @@ def find_spectral_files(
 
 def process_single_source(
     src_dir: Path,
+    gap_threshold: int,
     instrument: InstrumentType = "PN",
     group: bool = False
 ) -> bool:
@@ -254,7 +259,9 @@ def process_single_source(
         output_dir = src_dir / "combined" / instrument
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        return combine_source_spectra(output_dir, spec_files, group, instrument)
+        return combine_source_spectra(
+            output_dir, spec_files, group, gap_threshold, instrument
+        )
     except Exception as e:
         logging.error(f"Error processing {src_dir} ({instrument}): {str(e)}")
         return False
@@ -264,8 +271,9 @@ def combine_source_spectra(
     src_dir: Path,
     spec_files: List[Dict[str, List[Path]]],
     group: bool,
+    gap_threshold: int,
     instrument: InstrumentType = "PN",
-    output_filenames: Optional[Dict[str, str]] = None
+    output_filenames: Optional[Dict[str, str]] = None,
 ) -> bool:
     """
     Combine and optionally group spectra for a single source.
@@ -274,6 +282,7 @@ def combine_source_spectra(
         src_dir: Directory containing source spectra
         spec_files: List of dictionaries containing spectral file paths
         group: Whether to group the combined spectra
+        gap_threshold: Gap threshold used for spectrum combination
         instrument: Instrument type (PN, M1, M2, or MOS)
         output_filenames: Optional custom filenames for output files
 
@@ -302,10 +311,15 @@ def combine_source_spectra(
             group_success = run_ftgrouppha(
                 src_dir,
                 instrument,
+                gap_threshold,
                 output_filenames['spectrum']
             )
         else:
-            group_success = run_ftgrouppha(src_dir, instrument)
+            group_success = run_ftgrouppha(
+                src_dir,
+                instrument,
+                gap_threshold
+            )
 
         if not group_success:
             logging.error(f"Failed to group spectra for {src_dir}")
@@ -317,6 +331,7 @@ def combine_source_spectra(
 
 def combine_spectra(
     base_dir: str = "data/downloaded_spectra",
+    gap_threshold: int = 30,
     instruments: List[InstrumentType] = None,
     group: bool = False
 ) -> None:
@@ -331,7 +346,7 @@ def combine_spectra(
     # Process each source directory
     for src_dir in (d for d in base_path.iterdir() if d.is_dir()):
         for instrument in instruments:
-            process_single_source(src_dir, instrument, group)
+            process_single_source(src_dir, gap_threshold, instrument, group)
 
 
 def main():
@@ -356,13 +371,21 @@ def main():
         default=["PN"],
         help="Instruments to process (default: PN)"
     )
+    parser.add_argument(
+        '--gap-threshold',
+        type=int,
+        default=30,
+        help="Gap threshold for spectrum combination"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    combine_spectra(args.base_dir, args.instruments, args.group)
+    combine_spectra(
+        args.base_dir, args.gap_threshold, args.instruments, args.group
+    )
 
 
 if __name__ == "__main__":
