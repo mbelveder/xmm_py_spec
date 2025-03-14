@@ -73,8 +73,8 @@ fit_clustered_observations_m2:
 fit_clustered_observations_mos:
 		poetry run python -m xmm_py_spec.fit_observations --instruments MOS --type clustered
 
-cluster_and_combine_spectra:
-		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --group
+cluster_and_combine_spectra_pn:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument PN --group
 
 cluster_and_combine_spectra_m1:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M1 --group
