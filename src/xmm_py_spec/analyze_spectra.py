@@ -91,6 +91,66 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
         return False
 
 
+def _process_cluster_dir(cluster_dir: Path) -> List[Path]:
+    """Process a cluster directory and find grouped spectra.
+
+    Args:
+        cluster_dir: Path to cluster directory
+
+    Returns:
+        List of paths to grouped spectrum files
+    """
+    if not cluster_dir.is_dir():
+        return []
+
+    logging.info(f"Searching in cluster: {cluster_dir}")
+    pattern = "combined_spectrum_*_*_*_grouped.pha"
+    cluster_spectrum = list(cluster_dir.glob(pattern))
+
+    if cluster_spectrum:
+        logging.info(
+            f"Found clustered spectrum: {cluster_spectrum[0].name} "
+            f"in {cluster_dir}"
+        )
+    else:
+        logging.info(f"No files matching '{pattern}' found in {cluster_dir}")
+        logging.debug("Directory contents:")
+        for item in cluster_dir.iterdir():
+            logging.debug(f"  {item.name}")
+
+    return cluster_spectrum
+
+
+def _process_source_dir(
+    src_dir: Path,
+    source_id: Optional[str] = None
+) -> List[Path]:
+    """Process a source directory and find all grouped spectra.
+
+    Args:
+        src_dir: Path to source directory
+        source_id: Optional source ID to filter by
+
+    Returns:
+        List of paths to grouped spectrum files
+    """
+    if not src_dir.is_dir() or (source_id and src_dir.name != source_id):
+        return []
+
+    logging.info(f"Checking source directory: {src_dir}")
+    spectra = []
+    clusters_dir = src_dir / "clusters"
+
+    if clusters_dir.exists():
+        logging.info(f"Found clusters directory: {clusters_dir}")
+        for cluster_dir in clusters_dir.iterdir():
+            spectra.extend(_process_cluster_dir(cluster_dir))
+    else:
+        logging.debug(f"No clusters directory in {src_dir}")
+
+    return spectra
+
+
 def find_grouped_spectra(
         base_dir: str = "data/downloaded_spectra",
         source_id: Optional[str] = None
@@ -109,47 +169,8 @@ def find_grouped_spectra(
     spectra = []
     logging.info(f"Searching for grouped spectra in {base_path}")
 
-    # Process each source directory
     for src_dir in base_path.iterdir():
-        if not src_dir.is_dir():
-            continue
-
-        # Filter by source ID if provided
-        if source_id and src_dir.name != source_id:
-            continue
-
-        logging.info(f"Checking source directory: {src_dir}")
-
-        # Check clusters directory
-        clusters_dir = src_dir / "clusters"
-        if clusters_dir.exists():
-            logging.info(f"Found clusters directory: {clusters_dir}")
-            for cluster_dir in clusters_dir.iterdir():
-                if not cluster_dir.is_dir():
-                    continue
-
-                logging.info(f"Searching in cluster: {cluster_dir}")
-                pattern = "combined_spectrum_*_*_*_grouped.pha"
-                # Match pattern:
-                # combined_spectrum_{INSTRUMENT}_{YYYY}_{MM}_grouped.pha
-                cluster_spectrum = list(cluster_dir.glob(pattern))
-                if cluster_spectrum:
-                    spectra.extend(cluster_spectrum)
-                    logging.info(
-                        f"Found clustered spectrum: {cluster_spectrum[0].name} "
-                        f"in {cluster_dir}"
-                    )
-                else:
-                    logging.info(
-                        f"No files matching '{pattern}' found in {cluster_dir}"
-                    )
-
-                # Log directory contents for debugging
-                logging.debug("Directory contents:")
-                for item in cluster_dir.iterdir():
-                    logging.debug(f"  {item.name}")
-        else:
-            logging.debug(f"No clusters directory in {src_dir}")
+        spectra.extend(_process_source_dir(src_dir, source_id))
 
     if not spectra:
         logging.warning(f"No grouped spectra found in {base_dir}")
