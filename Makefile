@@ -1,3 +1,6 @@
+# Define a variable for source_id that can be overridden
+SOURCE_ID ?= $(SOURCE_ID)
+
 install:
 		poetry install
 
@@ -38,7 +41,7 @@ analyze_grouped_spectra:
 		poetry run python -m xmm_py_spec.analyze_spectra
 
 analyze_grouped_spectra_5359:
-		poetry run python -m xmm_py_spec.analyze_spectra --source 201237001010017_5359
+		poetry run python -m xmm_py_spec.analyze_spectra --source $(SOURCE_ID)
 
 fit_observations_pn:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN
@@ -74,16 +77,16 @@ fit_clustered_observations_mos:
 		poetry run python -m xmm_py_spec.fit_observations --instruments MOS --type clustered
 
 cluster_and_combine_spectra_pn:
-		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument PN --group
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument PN --group
 
 cluster_and_combine_spectra_m1:
-		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M1 --group
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument M1 --group
 
 cluster_and_combine_spectra_m2:
-		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument M2 --group
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument M2 --group
 
 cluster_and_combine_spectra_mos:
-		poetry run python -m xmm_py_spec.cluster_and_combine_spectra 201237001010017_5359 --instrument MOS --group
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument MOS --group
 
 publish:
 		poetry publish --dry-run

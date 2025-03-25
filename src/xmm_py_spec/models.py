@@ -219,7 +219,7 @@ def perform_steppar_scan() -> dict:
     """Perform 2D parameter scan and collect results."""
     # Reduce logging to essential info only
     logging.debug("Starting steppar scan")
-    Fit.steppar('log 2 1e-1 10 100 nolog 4 -1 3 100')
+    Fit.steppar('log 2 1e-1 10 100 nolog 4 -1 3.5 100')
     logging.debug("Steppar completed")
 
     Plot.addCommand("image off")
@@ -289,7 +289,7 @@ def plot_contours(
     ax.set_ylabel('Г')
     ax.set_xscale('log')
     ax.set_xlim(0.1, 10)
-    ax.set_ylim(0, 2.5)
+    ax.set_ylim(0, 3.5)
 
     fig.suptitle(title, fontsize=12, y=.95)
     fig.savefig(plot_path, bbox_inches='tight', dpi=300, transparent=True)
