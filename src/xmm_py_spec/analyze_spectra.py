@@ -5,7 +5,6 @@ import xspec
 from astropy.io import fits
 import argparse
 from .analyze_spectral_variability import ChangeDir
-# from .models import setup_model
 
 
 def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:

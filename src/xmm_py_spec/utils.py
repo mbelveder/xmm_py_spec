@@ -2,9 +2,19 @@ import csv
 from pathlib import Path
 from typing import List, Dict, Union, Literal
 import warnings
+from enum import Enum, auto
 
 InstrumentType = Literal["PN", "M1", "M2"]
 
+class CombineMethod(Enum):
+    """Spectra combination method."""
+    EPICSPECCOMBINE = auto()
+    ADDSPEC = auto()
+
+    @property
+    def suffix(self) -> str:
+        """Get filename suffix for this method."""
+        return self.name.lower()
 
 def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
     """Load XMM source list from CSV file

@@ -1,5 +1,5 @@
 # Define a variable for source_id that can be overridden
-SOURCE_ID ?= $(SOURCE_ID)
+# SOURCE_ID ?= $(SOURCE_ID)
 
 install:
 		poetry install
@@ -29,7 +29,7 @@ combine_spectra_group:
 		poetry run python -m xmm_py_spec.combine_spectra --group
 
 combine_spectra_group_pn:
-		poetry run python -m xmm_py_spec.combine_spectra --instruments PN --group
+		poetry run python -m xmm_py_spec.combine_spectra --instruments PN --group --method EPICSPECCOMBINE
 
 combine_spectra_group_all:
 		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2 --group
@@ -87,6 +87,12 @@ cluster_and_combine_spectra_m2:
 
 cluster_and_combine_spectra_mos:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument MOS --group
+
+cluster_and_combine_spectra_pn_addspec:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument PN --group --method ADDSPEC
+
+cluster_and_combine_spectra_mos_addspec:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument MOS --group --method ADDSPEC
 
 publish:
 		poetry publish --dry-run

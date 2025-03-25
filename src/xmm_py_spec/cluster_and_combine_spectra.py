@@ -18,7 +18,7 @@ from .combine_spectra import (
 )
 import argparse
 from .logging_config import get_logger, setup_basic_logging
-from .utils import get_instrument_filenames, InstrumentType
+from .utils import get_instrument_filenames, InstrumentType, CombineMethod
 
 # Initialize basic logging configuration
 setup_basic_logging()
@@ -341,7 +341,8 @@ def _process_single_cluster(
     total: int,
     group: bool,
     instrument: InstrumentType = "PN",
-    gap_threshold: int = 30
+    gap_threshold: int = 30,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> Optional[Tuple[str, Path]]:
     """Process a single cluster and return its combined spectrum path."""
     if not cluster.get('cluster_dir') or not cluster.get('start_date'):
@@ -359,7 +360,7 @@ def _process_single_cluster(
 
     # Set up instrument-specific filenames with cluster ID and gap threshold
     cluster_id = cluster['start_date'].strftime('%Y_%m')
-    id_suffix = f'_{instrument}_{cluster_id}_gap{gap_threshold}'
+    id_suffix = f'_{instrument}_{cluster_id}_gap{gap_threshold}_{method.suffix}'
     output_filenames = {
         'spectrum': f'combined_spectrum{id_suffix}.ds',
         'background': f'combined_background{id_suffix}.ds',
@@ -372,7 +373,8 @@ def _process_single_cluster(
         group,
         instrument=instrument,
         output_filenames=output_filenames,
-        gap_threshold=gap_threshold
+        gap_threshold=gap_threshold,
+        method=method
     )
 
     if not success:
@@ -386,7 +388,8 @@ def _process_single_cluster(
 def combine_mos_spectra(
     cluster: Dict,
     gap_threshold: int = 30,
-    group: bool = False
+    group: bool = False,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> Optional[Tuple[str, Path]]:
     """
     Combine MOS1 and MOS2 spectra within a cluster.
@@ -395,10 +398,12 @@ def combine_mos_spectra(
         cluster: Cluster dictionary containing observation data
         gap_threshold: Maximum days between observations in same cluster
         group: Whether to group the combined spectra
+        method: Method to use for combining spectra
 
     Returns:
         Tuple of (cluster_id, combined_spectrum_path) or None if failed
     """
+
     if not cluster.get('cluster_dir') or not cluster.get('start_date'):
         logger.warning("Skipping MOS combination - missing cluster data")
         return None
@@ -431,20 +436,22 @@ def combine_mos_spectra(
         return None
 
     # Set up MOS-specific filenames with gap threshold
-    id_suffix = f'_{cluster_id}_gap{gap_threshold}'
+    id_suffix = f'_{cluster_id}_gap{gap_threshold}_{method.suffix}'
     mos_filenames = {
         'spectrum': f'combined_spectrum_MOS{id_suffix}.ds',
         'background': f'combined_background_MOS{id_suffix}.ds',
         'response': f'combined_response_MOS{id_suffix}.rmf'
     }
 
+    # Files are processed in temp dir, but output goes to cluster dir
     success = combine_source_spectra(
-        cluster['cluster_dir'],
+        cluster['cluster_dir'],  # This is where results will be saved
         all_mos_files,
         group,
         instrument="MOS",
         output_filenames=mos_filenames,
-        gap_threshold=gap_threshold
+        gap_threshold=gap_threshold,
+        method=method
     )
 
     if not success:
@@ -460,9 +467,10 @@ def combine_clustered(
     source_user_id: str,
     instrument: InstrumentType = "PN",
     group: bool = False,
-    gap_threshold: int = 30
+    gap_threshold: int = 30,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> Dict[str, Path]:
-    """Combine clustered observations using epicspeccombine."""
+    """Combine clustered observations using specified method."""
     if not clusters:
         raise ValueError("No clusters provided")
 
@@ -475,11 +483,13 @@ def combine_clustered(
                 result = combine_mos_spectra(
                     cluster,
                     gap_threshold=gap_threshold,
-                    group=group
+                    group=group,
+                    method=method
                 )
             else:
                 result = _process_single_cluster(
-                    cluster, i, len(clusters), group, instrument, gap_threshold
+                    cluster, i, len(clusters), group,
+                    instrument, gap_threshold, method
                 )
 
             if result:
@@ -508,7 +518,8 @@ def cluster_and_combine_spectra(
     output_dir: Path,
     instrument: InstrumentType = "PN",
     gap_threshold: int = 30,
-    group: bool = False
+    group: bool = False,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> Dict[str, Path]:
     """Main function that orchestrates clustering and combination."""
     logger.info(
@@ -530,7 +541,7 @@ def cluster_and_combine_spectra(
             return {}
 
         combined = combine_clustered(
-            clusters, source_user_id, instrument, group, gap_threshold
+            clusters, source_user_id, instrument, group, gap_threshold, method
         )
 
         if not combined:
@@ -592,6 +603,13 @@ def main():
         default="PN",
         help="Instrument to process (default: PN, options: PN,M1,M2,MOS)"
     )
+    parser.add_argument(
+        '--method',
+        type=str,
+        choices=[m.name for m in CombineMethod],
+        default=CombineMethod.EPICSPECCOMBINE.name,
+        help="Method to use for combining spectra"
+    )
 
     args = parser.parse_args()
 
@@ -609,12 +627,14 @@ def main():
         )
 
         if not args.cluster_only:
+            method = CombineMethod[args.method]
             combined = combine_clustered(
                 clusters=clusters,
                 source_user_id=args.source_user_id,
                 instrument=args.instrument,
                 group=args.group,
-                gap_threshold=args.gap_threshold
+                gap_threshold=args.gap_threshold,
+                method=method
             )
             logger.info(
                 f"Successfully combined {len(combined)} clusters"

@@ -4,7 +4,13 @@ import subprocess
 from datetime import datetime
 import logging
 import argparse
-from .utils import get_instrument_filenames, InstrumentType
+from .utils import (
+    get_instrument_filenames, InstrumentType, CombineMethod
+)
+import tempfile
+import shutil
+from .analyze_spectral_variability import ChangeDir
+from contextlib import contextmanager
 
 # Add instrument type and mapping
 INSTRUMENTS = {
@@ -240,9 +246,18 @@ def process_single_source(
     src_dir: Path,
     gap_threshold: int,
     instrument: InstrumentType = "PN",
-    group: bool = False
+    group: bool = False,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> bool:
-    """Process a single source directory for specific instrument."""
+    """Process a single source directory for specific instrument.
+    
+    Args:
+        src_dir: Source directory path
+        gap_threshold: Gap threshold for spectrum combination
+        instrument: Instrument type
+        group: Whether to group the output
+        method: Method to use for combining spectra
+    """
     logging.info(
         f"Processing source directory: {src_dir} for instrument {instrument}"
     )
@@ -255,12 +270,12 @@ def process_single_source(
             )
             return False
 
-        # Create instrument-specific output directory
         output_dir = src_dir / "combined" / instrument
         output_dir.mkdir(parents=True, exist_ok=True)
 
         return combine_source_spectra(
-            output_dir, spec_files, group, gap_threshold, instrument
+            output_dir, spec_files, group, instrument,
+            gap_threshold=gap_threshold, method=method
         )
     except Exception as e:
         logging.error(f"Error processing {src_dir} ({instrument}): {str(e)}")
@@ -271,56 +286,68 @@ def combine_source_spectra(
     src_dir: Path,
     spec_files: List[Dict[str, List[Path]]],
     group: bool,
-    gap_threshold: int,
     instrument: InstrumentType = "PN",
     output_filenames: Optional[Dict[str, str]] = None,
+    gap_threshold: Optional[int] = None,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE,
 ) -> bool:
-    """
-    Combine and optionally group spectra for a single source.
+    """Combine and optionally group spectra for a single source.
 
     Args:
         src_dir: Directory containing source spectra
         spec_files: List of dictionaries containing spectral file paths
         group: Whether to group the combined spectra
-        gap_threshold: Gap threshold used for spectrum combination
         instrument: Instrument type (PN, M1, M2, or MOS)
         output_filenames: Optional custom filenames for output files
+        gap_threshold: Optional gap threshold for filename suffix
+        method: Method to use for combining spectra
 
     Returns:
         bool: True if combination successful, False otherwise
     """
-    # Build and run combine command with custom filenames if provided
-    args = build_combine_args(
-        spec_files,
-        src_dir,
-        instrument,
-        output_filenames=output_filenames
-    )
-    save_debug_command(args, src_dir)
+    if not output_filenames:
+        filenames = get_instrument_filenames(instrument)
+        suffix = f"_{method.suffix}"
+        if gap_threshold is not None:
+            suffix += f"_gap{gap_threshold}"
+        
+        if method == CombineMethod.EPICSPECCOMBINE:
+            # Add .ds extension for epicspeccombine
+            base_names = {
+                k: v.replace('.ds', f'{suffix}.ds')
+                for k, v in filenames.items()
+            }
+        else:
+            # For addspec, use just the base name without extension
+            base_name = filenames['spectrum'].rsplit('.', 1)[0]
+            base_names = {'spectrum': f"{base_name}{suffix}"}
+    else:
+        base_names = output_filenames
 
-    if not run_spcombine(args):
+    success = False
+    if method == CombineMethod.EPICSPECCOMBINE:
+        args = build_combine_args(spec_files, src_dir, instrument, base_names)
+        save_debug_command(args, src_dir)
+        success = run_spcombine(args)
+    else:  # ADDSPEC
+        logging.info(f"Using ADDSPEC method for {src_dir}")
+        success = run_addspec(
+            spec_files,
+            src_dir,  # Output directory is the source directory
+            base_names  # Use the same naming convention as epicspeccombine
+        )
+
+    if not success:
         logging.error(f"Failed to combine spectra for {src_dir}")
         return False
 
     logging.info(f"Successfully combined spectra in {src_dir}")
 
-    # Handle grouping if requested
     if group:
-        # Use custom output filename for grouped spectra if provided
-        if output_filenames and 'spectrum' in output_filenames:
-            group_success = run_ftgrouppha(
-                src_dir,
-                instrument,
-                gap_threshold,
-                output_filenames['spectrum']
-            )
-        else:
-            group_success = run_ftgrouppha(
-                src_dir,
-                instrument,
-                gap_threshold
-            )
-
+        group_success = run_ftgrouppha(
+            src_dir,
+            input_filename=base_names.get('spectrum')
+        )
         if not group_success:
             logging.error(f"Failed to group spectra for {src_dir}")
             return False
@@ -329,11 +356,189 @@ def combine_source_spectra(
     return True
 
 
+def create_spectra_list(
+    spec_files: List[Dict[str, List[Path]]],
+    list_file: Path
+) -> bool:
+    """Create input file listing spectra for addspec."""
+    try:
+        content = []
+        with open(list_file, 'w') as f:
+            for files in spec_files:
+                if not files['spec']:
+                    continue
+                # Only write spectrum filenames, one per line
+                for spec in files['spec']:
+                    f.write(f"{spec.name}\n")
+                    content.append(spec.name)
+        
+        logging.info(f"Created spectra list at: {list_file.parent.name}/{list_file.name}")
+        logging.info("Spectra list content:")
+        for line_num, line in enumerate(content, 1):
+            logging.info(f"  {line_num}: {line}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to create spectra list: {e}")
+        return False
+
+
+@contextmanager
+def TempFileManager(spec_files: List[Dict[str, List[Path]]], tmp_dir: Path):
+    """Manage temporary files for addspec operation.
+
+    Args:
+        spec_files: List of dictionaries containing spectral file paths
+        tmp_dir: Temporary directory path
+
+    Yields:
+        Tuple[Dict[str, List[Path]], Path]: Copied files and list file path
+    """
+    copied_files = {'spec': [], 'bkg': [], 'rmf': [], 'arf': []}
+    list_file = tmp_dir / "spectra_list.txt"
+
+    try:
+        # First copy all files
+        for files in spec_files:
+            for i, spec in enumerate(files['spec']):
+                # Copy spectrum file
+                tmp_spec = tmp_dir / spec.name
+                shutil.copy2(spec, tmp_spec)
+                copied_files['spec'].append(tmp_spec)
+
+                # Copy companion files (needed by addspec but not listed)
+                companions = {
+                    'bkg': files['bkg'][i] if i < len(files['bkg']) else None,
+                    'rmf': files['rmf'][i] if i < len(files['rmf']) else None,
+                    'arf': files['arf'][i] if i < len(files['arf']) else None
+                }
+                for ftype, fpath in companions.items():
+                    if fpath:
+                        tmp_path = tmp_dir / fpath.name
+                        shutil.copy2(fpath, tmp_path)
+                        copied_files[ftype].append(tmp_path)
+
+        # Create list file with only spectrum filenames
+        create_spectra_list(spec_files, list_file)
+        yield copied_files, list_file
+
+    except Exception as e:
+        logging.error(f"Failed to prepare files: {str(e)}")
+        raise
+
+
+def run_addspec(
+    spec_files: List[Dict[str, List[Path]]],
+    output_dir: Path,
+    output_filenames: Dict[str, str]
+) -> bool:
+    """Run addspec with validated input files in a temporary directory."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        logging.info(f"Created working directory: {tmp_path}")
+
+        try:
+            with TempFileManager(spec_files, tmp_path) as (copied, list_file):
+                logging.info(f"Working in: {tmp_path}")
+                logging.info(f"Output will be saved to: {output_dir}")
+
+                # Run addspec in temp directory
+                with ChangeDir(tmp_path):
+                    # Remove .ds extension if present for addspec output
+                    output_base = output_filenames['spectrum'].replace('.ds', '')
+                    cmd = [
+                        "addspec",
+                        f"infil={list_file.name}",
+                        f"outfil={output_base}",  # addspec will add extensions
+                        "qaddrmf=yes",
+                        "qsubback=yes",
+                        "clobber=yes"
+                    ]
+                    logging.debug(f"Running: {' '.join(cmd)}")
+
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    logging.info("addspec command completed successfully")
+                    if result.stdout:
+                        logging.debug(f"addspec output: {result.stdout}")
+
+                # Handle multiple output files with different extensions
+                output_base = output_filenames['spectrum'].rsplit('.', 1)[0]
+                expected_files = {
+                    'pha': f'{output_base}.pha',
+                    'bak': f'{output_base}.bak',
+                    'rsp': f'{output_base}.rsp'
+                }
+
+                logging.info("Checking addspec output files:")
+                for ftype, fname in expected_files.items():
+                    src = tmp_path / fname
+                    logging.info(f"Looking for {ftype} file: {src.name}")
+                    
+                    if not src.exists():
+                        logging.error(
+                            f"Output {ftype} file not found: {src.name}\n"
+                            f"Directory contents: "
+                            f"{[p.name for p in tmp_path.glob('*')]}"
+                        )
+                        raise FileNotFoundError(
+                            f"addspec failed to create {fname}"
+                        )
+                    
+                    file_size = src.stat().st_size
+                    logging.debug(f"{ftype} file size: {file_size} bytes")
+                    
+                    if file_size == 0:
+                        logging.error(
+                            f"Empty {ftype} file: {fname}"
+                        )
+                        raise ValueError(f"Empty output file: {fname}")
+
+                    # Copy file to destination
+                    dst = output_dir / fname
+                    logging.info(f"Copying {ftype} to: {dst.name}")
+                    try:
+                        shutil.copy2(src, dst)
+                        if not dst.exists():
+                            raise FileNotFoundError(
+                                f"Copy operation failed for {ftype}"
+                            )
+                        
+                        dst_size = dst.stat().st_size
+                        if dst_size != file_size:
+                            raise ValueError(
+                                f"Size mismatch for {ftype}: "
+                                f"src={file_size}, dst={dst_size}"
+                            )
+                        logging.info(f"Successfully created {ftype} file: {dst.name}")
+                    except Exception as e:
+                        logging.error(
+                            f"Failed to copy {ftype} file {src.name}: {str(e)}"
+                        )
+                        raise
+
+                return True
+
+        except subprocess.CalledProcessError as e:
+            logging.error(
+                f"addspec failed (code {e.returncode}): {e.stderr}"
+            )
+            return False
+        except Exception as e:
+            logging.error(f"Operation failed: {str(e)}")
+            logging.debug("Details:", exc_info=True)
+            return False
+
+
 def combine_spectra(
     base_dir: str = "data/downloaded_spectra",
     gap_threshold: int = 30,
     instruments: List[InstrumentType] = None,
-    group: bool = False
+    group: bool = False,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> None:
     """Combine spectra for each source and optionally group them."""
     base_path = Path(base_dir)
@@ -346,7 +551,10 @@ def combine_spectra(
     # Process each source directory
     for src_dir in (d for d in base_path.iterdir() if d.is_dir()):
         for instrument in instruments:
-            process_single_source(src_dir, gap_threshold, instrument, group)
+            print(method)
+            process_single_source(
+                src_dir, gap_threshold, instrument, group, method
+            )
 
 
 def main():
@@ -377,14 +585,20 @@ def main():
         default=30,
         help="Gap threshold for spectrum combination"
     )
+    parser.add_argument(
+        '--method',
+        type=str,
+        choices=[m.name for m in CombineMethod],
+        default=CombineMethod.EPICSPECCOMBINE.name,
+        help="Method to use for combining spectra"
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    method = CombineMethod[args.method]
+    print(method)
     combine_spectra(
-        args.base_dir, args.gap_threshold, args.instruments, args.group
+        args.base_dir, args.gap_threshold, args.instruments,
+        args.group, method=method
     )
 
 
