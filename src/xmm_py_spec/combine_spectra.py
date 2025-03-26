@@ -11,6 +11,8 @@ import tempfile
 import shutil
 from .analyze_spectral_variability import ChangeDir
 from contextlib import contextmanager
+import os
+from .analyze_spectra import fix_spectrum_paths_inplace
 
 # Add instrument type and mapping
 INSTRUMENTS = {
@@ -58,56 +60,62 @@ def run_spcombine(args: List[str]) -> bool:
 def run_ftgrouppha(
     source_dir: Path,
     input_filename: Optional[str] = None,
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> bool:
-    """
-    Run ftgrouppha inside container with TTY allocation.
+    """Run ftgrouppha locally for spectrum grouping.
 
     Args:
         source_dir: Directory containing the spectra
-        instrument: Instrument type (PN, M1, M2, or MOS)
-        gap_threshold: Gap threshold used for spectrum combination
         input_filename: Optional custom input filename
+        method: Method used for combining spectra (affects extensions)
     """
     try:
-        # Handle input spectrum file
         if input_filename:
             base_name = input_filename.rsplit(".", 1)[0]
-            spec_file = convert_to_docker_path(source_dir / input_filename)
-            out_file = convert_to_docker_path(
-                source_dir / f'{base_name}_grouped.pha'
+            out_file = str(source_dir / f'{base_name}_grouped.pha')
+
+            src_ext = '.pha' if method == CombineMethod.ADDSPEC else '.ds'
+            spec_file = str(source_dir / f'{base_name}{src_ext}')
+
+            # Use appropriate extension for background file
+            bkg_ext = '.bak' if method == CombineMethod.ADDSPEC else '.ds'
+            bkg_name = base_name
+            if method == CombineMethod.EPICSPECCOMBINE:
+                bkg_name = base_name.replace('spectrum', 'background')
+            bkg_file = str(source_dir / f'{bkg_name}{bkg_ext}')
+
+            cmd = [
+                "ftgrouppha",
+                f"infile={spec_file}",
+                f"outfile={out_file}",
+                f"backfile={bkg_file}",
+                "grouptype=min",
+                "groupscale=15",
+                "clobber=yes"
+            ]
+
+            # Save command for debugging before execution
+            save_debug_command(cmd, source_dir, command_type="group")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
             )
-            # For MOS, use matching background filename pattern
-            # if instrument == "MOS":
-            bkg_name = base_name.replace('spectrum', 'background')
-            bkg_file = convert_to_docker_path(
-                source_dir / f'{bkg_name}.ds'
-            )
+            logging.info("Successfully grouped spectrum")
+            logging.debug(f"ftgrouppha output: {result.stdout}")
 
-        cmd = [
-            "docker", "exec", "-it", "xmm_py_spec_container",
-            "ftgrouppha",
-            f"infile={spec_file}",
-            f"outfile={out_file}",
-            f"backfile={bkg_file}",
-            "grouptype=min",
-            "groupscale=15",
-            "clobber=yes"
-        ]
+            fix_spectrum_paths_inplace(out_file)
+            logging.info("Successfully fixed FITS paths inplace")
 
-        # Save command for debugging before execution
-        save_debug_command(cmd[5:], source_dir, command_type="group")
-
-        subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        logging.info("Successfully grouped spectrum")
-        return True
+            return True
 
     except subprocess.CalledProcessError as e:
         logging.error(f"Grouping failed: {e.stderr}")
+        return False
+    except Exception as e:
+        logging.error(f"Unexpected error in grouping: {str(e)}")
         return False
 
 
@@ -208,7 +216,8 @@ def build_combine_args(
 
 def find_spectral_files(
     src_dir: Path,
-    instrument: InstrumentType = "PN"
+    instrument: InstrumentType = "PN",
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> List[Dict[str, List[Path]]]:
     """
     Find all spectral files in observation directories for given instrument.
@@ -223,7 +232,9 @@ def find_spectral_files(
         return []
 
     for inst_dir in inst_dirs:
-        filenames = get_instrument_filenames(instrument, mode="individual")
+        filenames = get_instrument_filenames(
+            instrument, mode="individual", method=method
+        )
         files = {
             'spec': list(inst_dir.glob(filenames['spectrum'])),
             'bkg': list(inst_dir.glob(filenames['background'])),
@@ -263,7 +274,7 @@ def process_single_source(
     )
 
     try:
-        spec_files = find_spectral_files(src_dir, instrument)
+        spec_files = find_spectral_files(src_dir, instrument, method=method)
         if not spec_files:
             logging.warning(
                 f"No complete spectral sets found for {instrument} in {src_dir}"
@@ -310,7 +321,7 @@ def combine_source_spectra(
         suffix = f"_{method.suffix}"
         if gap_threshold is not None:
             suffix += f"_gap{gap_threshold}"
-        
+
         if method == CombineMethod.EPICSPECCOMBINE:
             # Add .ds extension for epicspeccombine
             base_names = {
@@ -344,9 +355,11 @@ def combine_source_spectra(
     logging.info(f"Successfully combined spectra in {src_dir}")
 
     if group:
+        print(os.getcwd())
         group_success = run_ftgrouppha(
             src_dir,
-            input_filename=base_names.get('spectrum')
+            input_filename=base_names.get('spectrum'),
+            method=method
         )
         if not group_success:
             logging.error(f"Failed to group spectra for {src_dir}")

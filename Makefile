@@ -91,6 +91,12 @@ cluster_and_combine_spectra_mos:
 cluster_and_combine_spectra_pn_addspec:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument PN --group --method ADDSPEC
 
+cluster_and_combine_spectra_m1_addspec:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument M1 --group --method ADDSPEC
+
+cluster_and_combine_spectra_m2_addspec:
+		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument M2 --group --method ADDSPEC
+
 cluster_and_combine_spectra_mos_addspec:
 		poetry run python -m xmm_py_spec.cluster_and_combine_spectra $(SOURCE_ID) --instrument MOS --group --method ADDSPEC
 

@@ -6,6 +6,7 @@ from enum import Enum, auto
 
 InstrumentType = Literal["PN", "M1", "M2"]
 
+
 class CombineMethod(Enum):
     """Spectra combination method."""
     EPICSPECCOMBINE = auto()
@@ -15,6 +16,7 @@ class CombineMethod(Enum):
     def suffix(self) -> str:
         """Get filename suffix for this method."""
         return self.name.lower()
+
 
 def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
     """Load XMM source list from CSV file
@@ -52,10 +54,26 @@ def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
 
 def get_instrument_filenames(
     instrument: InstrumentType,
-    mode: Literal["clustered", "individual"] = "individual"
+    mode: Literal["clustered", "individual"] = "individual",
+    method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> Dict[str, str]:
-    """Get instrument-specific filenames for spectra."""
+    """Get instrument-specific filenames for spectra.
+
+    Args:
+        instrument: Type of instrument (PN, M1, M2)
+        mode: Whether files are for clustered or individual spectra
+        method: Method used for combining spectra
+    """
     if mode == "clustered":
+        # For addspec mode, use specific extensions
+        if method == CombineMethod.ADDSPEC:
+            return {
+                'spectrum': 'combined_spectrum_*_addspec.pha',
+                'background': 'combined_spectrum_*_addspec.bak',
+                'response': 'combined_spectrum_*_addspec.rsp',
+                'grouped': 'combined_spectrum_*_addspec_grouped.pha'
+            }
+        # Default epicspeccombine mode
         return {
             'spectrum': f'combined_spectrum_{instrument}.ds',
             'background': f'combined_background_{instrument}.ds',
