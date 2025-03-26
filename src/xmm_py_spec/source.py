@@ -16,6 +16,7 @@ class Source:
     observations: List[Path] = None
     instrument: InstrumentType = "PN"
     gap_threshold: Optional[int] = None
+    method: str = "epicspeccombine"
 
     def __post_init__(self):
         """Initialize source paths and load observations."""
@@ -36,10 +37,19 @@ class Source:
 
         gap_suffix = f"_gap{self.gap_threshold}" if self.gap_threshold else ""
 
+        # Standardize on _addspec_grouped.pha pattern
+        if self.method == "addspec":
+            suffix = "_addspec_grouped.pha"
+        else:
+            suffix = "_epicspeccombine_grouped.pha"
+
         if self.instrument == "MOS":
             if self.spec_type == "individual":
                 raise ValueError("Individual mode not supported for MOS")
-            pattern = f"clusters/*/combined_spectrum_MOS_*{gap_suffix}.ds"
+            pattern = (
+                f"clusters/*/combined_spectrum_MOS_*{gap_suffix}"
+                f"*{suffix}"
+            )
         elif self.spec_type == "individual":
             pattern = (
                 f"**/PPS/{self.instrument}/*{self.instrument}S*SRSPEC*.FTZ"
@@ -47,7 +57,7 @@ class Source:
         else:
             pattern = (
                 "clusters/*/combined_spectrum"
-                f"_{self.instrument}*{gap_suffix}.ds"
+                f"_{self.instrument}*{gap_suffix}*{suffix}"
             )
 
         spectra = sorted(self.source_path.glob(pattern))

@@ -12,7 +12,6 @@ def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
 
     Args:
         spectrum_file: Path to spectrum file
-        spectra_type: Type of spectra being processed
     """
     with fits.open(spectrum_file, mode='update') as hdul:
         for hdu in hdul:
@@ -20,9 +19,20 @@ def fix_spectrum_paths_inplace(spectrum_file: Path) -> None:
                 if key not in hdu.header:
                     continue
 
-                # Get just the filename from the full path
                 current_path = Path(hdu.header[key])
-                hdu.header[key] = current_path.name
+                if "addspec_grouped" in str(spectrum_file):
+                    # Remove _grouped suffix for companion files
+                    base = current_path.stem.replace('_grouped', '')
+                    ext_map = {
+                        'BACKFILE': '.bak',
+                        'RESPFILE': '.rsp',
+                        'ANCRFILE': '.arf'
+                    }
+                    new_name = f"{base}{ext_map.get(key, current_path.suffix)}"
+                else:
+                    new_name = current_path.name
+
+                hdu.header[key] = new_name
 
         hdul.flush()
 
@@ -90,11 +100,15 @@ def setup_and_save_spectrum(spectrum_path: Path) -> bool:
         return False
 
 
-def _process_cluster_dir(cluster_dir: Path) -> List[Path]:
+def _process_cluster_dir(
+    cluster_dir: Path,
+    method: str = "epicspeccombine"
+) -> List[Path]:
     """Process a cluster directory and find grouped spectra.
 
     Args:
         cluster_dir: Path to cluster directory
+        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
 
     Returns:
         List of paths to grouped spectrum files
@@ -103,32 +117,39 @@ def _process_cluster_dir(cluster_dir: Path) -> List[Path]:
         return []
 
     logging.info(f"Searching in cluster: {cluster_dir}")
-    pattern = "combined_spectrum_*_*_*_grouped.pha"
-    cluster_spectrum = list(cluster_dir.glob(pattern))
+    pattern = (
+        "*_addspec_grouped.pha" if method == "addspec"
+        else "*_epicspeccombine_grouped.pha"
+    )
 
-    if cluster_spectrum:
+    spectra = list(cluster_dir.glob(pattern))
+    if spectra:
+        print(pattern)
+        breakpoint()
         logging.info(
-            f"Found clustered spectrum: {cluster_spectrum[0].name} "
+            f"Found {len(spectra)} spectra matching '{pattern}' "
             f"in {cluster_dir}"
         )
     else:
-        logging.info(f"No files matching '{pattern}' found in {cluster_dir}")
+        logging.info(f"No grouped spectra found in {cluster_dir}")
         logging.debug("Directory contents:")
         for item in cluster_dir.iterdir():
             logging.debug(f"  {item.name}")
 
-    return cluster_spectrum
+    return spectra
 
 
 def _process_source_dir(
     src_dir: Path,
-    source_id: Optional[str] = None
+    source_id: Optional[str] = None,
+    method: str = "epicspeccombine"
 ) -> List[Path]:
     """Process a source directory and find all grouped spectra.
 
     Args:
         src_dir: Path to source directory
         source_id: Optional source ID to filter by
+        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
 
     Returns:
         List of paths to grouped spectrum files
@@ -143,7 +164,7 @@ def _process_source_dir(
     if clusters_dir.exists():
         logging.info(f"Found clusters directory: {clusters_dir}")
         for cluster_dir in clusters_dir.iterdir():
-            spectra.extend(_process_cluster_dir(cluster_dir))
+            spectra.extend(_process_cluster_dir(cluster_dir, method))
     else:
         logging.debug(f"No clusters directory in {src_dir}")
 
@@ -152,7 +173,8 @@ def _process_source_dir(
 
 def find_grouped_spectra(
         base_dir: str = "data/downloaded_spectra",
-        source_id: Optional[str] = None
+        source_id: Optional[str] = None,
+        method: str = "epicspeccombine"
 ) -> List[Path]:
     """
     Find grouped spectra in both regular and clustered directories.
@@ -160,6 +182,7 @@ def find_grouped_spectra(
     Args:
         base_dir: Base directory containing source directories
         source_id: Optional source ID to filter results
+        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
 
     Returns:
         List of paths to grouped spectrum files (.pha)
@@ -169,7 +192,7 @@ def find_grouped_spectra(
     logging.info(f"Searching for grouped spectra in {base_path}")
 
     for src_dir in base_path.iterdir():
-        spectra.extend(_process_source_dir(src_dir, source_id))
+        spectra.extend(_process_source_dir(src_dir, source_id, method))
 
     if not spectra:
         logging.warning(f"No grouped spectra found in {base_dir}")
@@ -184,7 +207,8 @@ def find_grouped_spectra(
 
 def analyze_spectra(
     base_dir: str = "data/clustered_spectra",  # Changed from downloaded_spectra
-    source_id: Optional[str] = None
+    source_id: Optional[str] = None,
+    method: str = "epicspeccombine"
 ) -> None:
     """
     Analyze all grouped spectra using PyXspec.
@@ -192,10 +216,11 @@ def analyze_spectra(
     Args:
         base_dir: Base directory containing source directories
         source_id: Optional source ID to analyze
+        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
     """
     logging.info("Starting spectral analysis...")
 
-    spectra = find_grouped_spectra(base_dir, source_id)
+    spectra = find_grouped_spectra(base_dir, source_id, method)
     if not spectra:
         logging.warning("No grouped spectra found")
         return
@@ -220,13 +245,19 @@ def main():
         "--source",
         help="Source ID to analyze (default: analyze all)"
     )
+    parser.add_argument(
+        "--method",
+        choices=["epicspeccombine", "addspec"],
+        default="epicspeccombine",
+        help="Method used for combining spectra"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    analyze_spectra(args.base_dir, args.source)
+    analyze_spectra(args.base_dir, args.source, args.method)
 
 
 if __name__ == "__main__":

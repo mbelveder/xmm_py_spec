@@ -11,7 +11,6 @@ import tempfile
 import shutil
 from .analyze_spectral_variability import ChangeDir
 from contextlib import contextmanager
-import os
 from .analyze_spectra import fix_spectrum_paths_inplace
 
 # Add instrument type and mapping
@@ -355,7 +354,6 @@ def combine_source_spectra(
     logging.info(f"Successfully combined spectra in {src_dir}")
 
     if group:
-        print(os.getcwd())
         group_success = run_ftgrouppha(
             src_dir,
             input_filename=base_names.get('spectrum'),

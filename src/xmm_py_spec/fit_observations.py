@@ -28,8 +28,20 @@ def _get_spectra_path(source_id: str, spec_type: str, base_dir: Path) -> Path:
         return base_dir / "clustered_spectra" / source_id
 
 
-def _get_required_files(instrument: InstrumentType) -> Dict[str, str]:
+def _get_required_files(
+    instrument: InstrumentType,
+    method: str = "epicspeccombine"
+) -> Dict[str, str]:
     """Get list of required files for given instrument."""
+    if method == "addspec":
+        base = f'*{instrument}*'
+        return {
+            'spectrum': f'{base}addspec_grouped.pha',
+            'background': f'{base}addspec.bak',
+            'response': f'{base}addspec.rsp'
+        }
+
+    # Default epicspeccombine patterns
     patterns = {
         "PN": {
             'spectrum': '*PNS*SRSPEC*.FTZ',
@@ -55,21 +67,36 @@ def _get_required_files(instrument: InstrumentType) -> Dict[str, str]:
     return patterns[instrument]
 
 
-def _verify_spectrum_files(spectrum: Path, instrument: InstrumentType) -> bool:
+def _verify_spectrum_files(
+    spectrum: Path,
+    instrument: InstrumentType,
+    method: str = "epicspeccombine"
+) -> bool:
     """Verify that all required files exist for a spectrum."""
-    required = _get_required_files(instrument)
+    required = _get_required_files(instrument, method)
     parent_dir = spectrum.parent
 
-    # For MOS, look in the cluster directory instead of PPS subdir
-    if instrument == "MOS":
+    # For MOS or addspec outputs, look in the cluster directory
+    if instrument == "MOS" or method == "addspec":
         parent_dir = (
             parent_dir.parent if "PPS" in str(parent_dir) else parent_dir
         )
 
     missing = []
     for file_type, pattern in required.items():
-        if not list(parent_dir.glob(pattern)):
+        matches = list(parent_dir.glob(pattern))
+        if not matches:
             missing.append(f"{file_type} ({pattern})")
+        elif method == "addspec":
+            # For addspec, verify matching date patterns
+            date_pattern = spectrum.name.split('_')[3:5]  # Extract YYYY_MM
+            if not any(
+                all(d in str(m) for d in date_pattern) for m in matches
+            ):
+                missing.append(
+                    f"{file_type} matching date pattern "
+                    f"{' '.join(date_pattern)}"
+                )
 
     if missing:
         logging.error(
@@ -120,7 +147,8 @@ def analyze_source_spectra(
     spec_type: Literal["individual", "clustered"],
     base_dir: Path,
     gap_threshold: Optional[int] = None,
-    instruments: List[InstrumentType] = None
+    instruments: List[InstrumentType] = None,
+    method: str = "epicspeccombine"
 ) -> None:
     """
     Analyze individual or clustered spectra for a source.
@@ -132,6 +160,7 @@ def analyze_source_spectra(
         base_dir: Base directory for data
         gap_threshold: Gap threshold for clustered spectra
         instruments: List of instruments to analyze
+        method: Method used to combine spectra
     """
     instruments = instruments or ["PN"]
 
@@ -149,12 +178,15 @@ def analyze_source_spectra(
             base_path=spec_path,
             spec_type=spec_type,
             instrument=instrument,
-            gap_threshold=gap_threshold
+            gap_threshold=gap_threshold,
+            method=method
         )
 
         # Process spectra files
         for spectrum in source.observations:
-            spectrum_verified = _verify_spectrum_files(spectrum, instrument)
+            spectrum_verified = _verify_spectrum_files(
+                spectrum, instrument, method
+            )
             spectrum_paths_fixed = _fix_spectrum_paths(spectrum)
             if not spectrum_verified or not spectrum_paths_fixed:
                 continue
@@ -163,7 +195,9 @@ def analyze_source_spectra(
         results_df = _process_spectra(source, base_dir, instrument)
         if results_df is not None:
             gap_suffix = f"_gap{gap_threshold}" if gap_threshold else ""
-            unique_name = f"{source_id}_{spec_type}_{instrument}{gap_suffix}"
+            unique_name = (
+                f"{source_id}_{spec_type}_{instrument}{gap_suffix}_{method}"
+            )
             output_file = (
                 base_dir / f"source_{unique_name}_results.csv"
             )
@@ -201,6 +235,12 @@ def main():
         default=30,
         help="Gap threshold for clustered spectra"
     )
+    parser.add_argument(
+        "--method",
+        choices=["epicspeccombine", "addspec"],
+        default="epicspeccombine",
+        help="Method used to combine spectra"
+    )
     args = parser.parse_args()
 
     base_dir = Path("data")
@@ -223,7 +263,8 @@ def main():
         analyze_source_spectra(
             source_id, params, args.type, base_dir,
             gap_threshold=args.gap_threshold,
-            instruments=args.instruments
+            instruments=args.instruments,
+            method=args.method
         )
 
 

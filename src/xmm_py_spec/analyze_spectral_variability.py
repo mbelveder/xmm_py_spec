@@ -6,8 +6,11 @@ from astropy.io import fits
 from datetime import datetime
 import pandas as pd
 import os
+import re
 import traceback
 from typing import Literal
+
+InstrumentType = Literal["PN", "M1", "M2"]
 
 
 class ChangeDir:
@@ -75,7 +78,25 @@ def extract_title(spectrum_name):
         return coord_str, exp_str, date_str, date_obs_dt, obs_id
 
 
-InstrumentType = Literal["PN", "M1", "M2"]
+def extract_title_addspec(spectrum_name):
+    """Extract title information from spectrum file.
+
+    Args:
+        spectrum_name: Path or str of the spectrum file
+    """
+    # Use just the base name since we're in the correct directory
+    spectrum_name = Path(spectrum_name).name
+
+    # Extract the year and month (like 2000_04)
+    match = re.search(r'(\d{4}_\d{2})', str(spectrum_name))
+    date_str = match.group(1)
+
+    date_obs_dt = datetime.strptime(date_str, '%Y_%m')
+    print(date_obs_dt)
+    formatted_date = date_obs_dt.strftime('%B %Y')
+    date_str = f'DATE-OBS: {formatted_date}'
+
+    return '', '', date_str, date_obs_dt, date_str
 
 
 def analyze_source(
@@ -110,10 +131,14 @@ def analyze_source(
             # Use context manager to ensure we're in the
             # correct directory when reading files
             with ChangeDir(spectrum_path.parent):
-                coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
-                    # Use only filename since we're in the correct directory
+                # TODO: get rid of the temporary comment out
+                coord_str, exp_str, date_str, date_obs, obs_id = extract_title_addspec(
                     spectrum_path.name
                 )
+                # coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
+                #     # Use only filename since we're in the correct directory
+                #     spectrum_path.name
+                # )
                 logger.debug(f"Observation details: {date_str} | {exp_str}")
                 logger.debug(f"Coordinates: {coord_str}")
                 title = f'{coord_str} | {exp_str} | {date_str}'
