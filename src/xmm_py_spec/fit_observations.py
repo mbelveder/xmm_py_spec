@@ -126,11 +126,18 @@ def _fix_spectrum_paths(spectrum: Path) -> bool:
 
 
 def _process_spectra(
-        source: Source, base_dir: Path, insturment
+        source: Source,
+        base_dir: Path, insturment,
+        method: str = "epicspeccombine"
 ) -> Optional[pd.DataFrame]:
     """Process all spectra for a source."""
     try:
-        results_df = analyze_source(source, base_dir, insturment)
+        results_df = analyze_source(
+            source,
+            base_dir,
+            insturment,
+            method
+        )
         if results_df.empty:
             logging.warning("No results obtained from analysis")
             return None
@@ -192,7 +199,7 @@ def analyze_source_spectra(
                 continue
 
         # Analyze and save results
-        results_df = _process_spectra(source, base_dir, instrument)
+        results_df = _process_spectra(source, base_dir, instrument, method)
         if results_df is not None:
             gap_suffix = f"_gap{gap_threshold}" if gap_threshold else ""
             unique_name = (
