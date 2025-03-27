@@ -102,7 +102,8 @@ def extract_title_addspec(spectrum_name):
 def analyze_source(
     source: Source,
     output_dir: Path,
-    instrument: InstrumentType = "PN"
+    instrument: InstrumentType = "PN",
+    method: str = "epicspeccombine"
 ) -> pd.DataFrame:
     """Analyze all observations for a single source."""
     logger = logging.getLogger(__name__)
@@ -131,14 +132,17 @@ def analyze_source(
             # Use context manager to ensure we're in the
             # correct directory when reading files
             with ChangeDir(spectrum_path.parent):
-                # TODO: get rid of the temporary comment out
-                coord_str, exp_str, date_str, date_obs, obs_id = extract_title_addspec(
-                    spectrum_path.name
-                )
-                # coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
-                #     # Use only filename since we're in the correct directory
-                #     spectrum_path.name
-                # )
+                if method == 'addspec':
+                    coord_str, exp_str, date_str, date_obs, obs_id = extract_title_addspec(
+                        spectrum_path.name
+                    )
+                elif method == "epicspeccombine":
+                    coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
+                        # Use only filename since we're in the correct directory
+                        spectrum_path.name
+                    )
+                else:
+                    raise ValueError('Check `method`')
                 logger.debug(f"Observation details: {date_str} | {exp_str}")
                 logger.debug(f"Coordinates: {coord_str}")
                 title = f'{coord_str} | {exp_str} | {date_str}'
