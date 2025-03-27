@@ -59,7 +59,7 @@ fit_observations_all:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2
 
 fit_clustered_observations_all:
-		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2 --type clustered
+		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2 MOS --type clustered
 
 fit_clustered_observations_pn:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN --type clustered
@@ -77,7 +77,7 @@ fit_clustered_observations_mos:
 		poetry run python -m xmm_py_spec.fit_observations --instruments MOS --type clustered
 
 fit_clustered_observations_all_addspec:
-		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2 --type clustered --method addspec
+		poetry run python -m xmm_py_spec.fit_observations --instruments PN M1 M2 MOS --type clustered --method addspec
 
 fit_clustered_observations_pn_addspec:
 		poetry run python -m xmm_py_spec.fit_observations --instruments PN --type clustered --method addspec
