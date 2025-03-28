@@ -108,7 +108,8 @@ def _process_cluster_dir(
 
     Args:
         cluster_dir: Path to cluster directory
-        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
+        method: Method used for combining spectra
+        ('epicspeccombine' or 'addspec')
 
     Returns:
         List of paths to grouped spectrum files
@@ -149,7 +150,8 @@ def _process_source_dir(
     Args:
         src_dir: Path to source directory
         source_id: Optional source ID to filter by
-        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
+        method: Method used for combining spectra
+        ('epicspeccombine' or 'addspec')
 
     Returns:
         List of paths to grouped spectrum files
@@ -182,7 +184,8 @@ def find_grouped_spectra(
     Args:
         base_dir: Base directory containing source directories
         source_id: Optional source ID to filter results
-        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
+        method: Method used for combining spectra
+        ('epicspeccombine' or 'addspec')
 
     Returns:
         List of paths to grouped spectrum files (.pha)
@@ -216,7 +219,8 @@ def analyze_spectra(
     Args:
         base_dir: Base directory containing source directories
         source_id: Optional source ID to analyze
-        method: Method used for combining spectra ('epicspeccombine' or 'addspec')
+        method: Method used for combining spectra
+        ('epicspeccombine' or 'addspec')
     """
     logging.info("Starting spectral analysis...")
 

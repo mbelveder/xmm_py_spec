@@ -133,14 +133,11 @@ def analyze_source(
             # correct directory when reading files
             with ChangeDir(spectrum_path.parent):
                 if method == 'addspec':
-                    coord_str, exp_str, date_str, date_obs, obs_id = extract_title_addspec(
-                        spectrum_path.name
-                    )
+                    coord_str, exp_str, date_str, date_obs, obs_id = \
+                        extract_title_addspec(spectrum_path.name)
                 elif method == "epicspeccombine":
-                    coord_str, exp_str, date_str, date_obs, obs_id = extract_title(
-                        # Use only filename since we're in the correct directory
-                        spectrum_path.name
-                    )
+                    coord_str, exp_str, date_str, date_obs, obs_id = \
+                        extract_title(spectrum_path.name)
                 else:
                     raise ValueError('Check `method`')
                 logger.debug(f"Observation details: {date_str} | {exp_str}")
