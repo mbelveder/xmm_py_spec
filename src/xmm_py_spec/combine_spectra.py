@@ -260,7 +260,7 @@ def process_single_source(
     method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> bool:
     """Process a single source directory for specific instrument.
-    
+
     Args:
         src_dir: Source directory path
         gap_threshold: Gap threshold for spectrum combination
@@ -382,8 +382,10 @@ def create_spectra_list(
                 for spec in files['spec']:
                     f.write(f"{spec.name}\n")
                     content.append(spec.name)
-        
-        logging.info(f"Created spectra list at: {list_file.parent.name}/{list_file.name}")
+
+        logging.info(
+            f"Created spectra list at: {list_file.parent.name}/{list_file.name}"
+        )
         logging.info("Spectra list content:")
         for line_num, line in enumerate(content, 1):
             logging.info(f"  {line_num}: {line}")
@@ -437,6 +439,37 @@ def TempFileManager(spec_files: List[Dict[str, List[Path]]], tmp_dir: Path):
         raise
 
 
+def _run_addspec_cmd(list_file: Path, output_base: str) -> None:
+    """Run addspec command and validate its execution."""
+    cmd = [
+        "addspec",
+        f"infil={list_file.name}",
+        f"outfil={output_base}",
+        "qaddrmf=yes",
+        "qsubback=yes",
+        "clobber=yes"
+    ]
+    logging.debug(f"Running: {' '.join(cmd)}")
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"addspec command failed: {e.stderr}")
+
+
+def _copy_and_validate(src: Path, dst: Path) -> None:
+    """Copy file and validate the copy operation."""
+    if not src.exists():
+        raise FileNotFoundError(f"Missing output file: {src}")
+
+    file_size = src.stat().st_size
+    if file_size == 0:
+        raise ValueError(f"Empty output file: {src}")
+
+    shutil.copy2(src, dst)
+    if not dst.exists() or dst.stat().st_size != file_size:
+        raise ValueError(f"Failed to copy file: {src} -> {dst}")
+
+
 def run_addspec(
     spec_files: List[Dict[str, List[Path]]],
     output_dir: Path,
@@ -445,99 +478,32 @@ def run_addspec(
     """Run addspec with validated input files in a temporary directory."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        logging.info(f"Created working directory: {tmp_path}")
+        logging.info(f"Working directory: {tmp_path}")
 
         try:
-            with TempFileManager(spec_files, tmp_path) as (copied, list_file):
-                logging.info(f"Working in: {tmp_path}")
-                logging.info(f"Output will be saved to: {output_dir}")
-
-                # Run addspec in temp directory
+            with TempFileManager(spec_files, tmp_path) as (_, list_file):
                 with ChangeDir(tmp_path):
-                    # Remove .ds extension if present for addspec output
-                    output_base = output_filenames['spectrum'].replace('.ds', '')
-                    cmd = [
-                        "addspec",
-                        f"infil={list_file.name}",
-                        f"outfil={output_base}",  # addspec will add extensions
-                        "qaddrmf=yes",
-                        "qsubback=yes",
-                        "clobber=yes"
-                    ]
-                    logging.debug(f"Running: {' '.join(cmd)}")
-
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        check=True
+                    output_base = output_filenames['spectrum'].replace(
+                        '.ds', ''
                     )
-                    logging.info("addspec command completed successfully")
-                    if result.stdout:
-                        logging.debug(f"addspec output: {result.stdout}")
+                    _run_addspec_cmd(list_file, output_base)
+                    logging.info("addspec completed successfully")
 
-                # Handle multiple output files with different extensions
+                # Process output files
                 output_base = output_filenames['spectrum'].rsplit('.', 1)[0]
-                expected_files = {
-                    'pha': f'{output_base}.pha',
-                    'bak': f'{output_base}.bak',
-                    'rsp': f'{output_base}.rsp'
-                }
+                for ext in ['.pha', '.bak', '.rsp']:
+                    src = tmp_path / f"{output_base}{ext}"
+                    dst = output_dir / f"{output_base}{ext}"
 
-                logging.info("Checking addspec output files:")
-                for ftype, fname in expected_files.items():
-                    src = tmp_path / fname
-                    logging.info(f"Looking for {ftype} file: {src.name}")
-                    
-                    if not src.exists():
-                        logging.error(
-                            f"Output {ftype} file not found: {src.name}\n"
-                            f"Directory contents: "
-                            f"{[p.name for p in tmp_path.glob('*')]}"
-                        )
-                        raise FileNotFoundError(
-                            f"addspec failed to create {fname}"
-                        )
-                    
-                    file_size = src.stat().st_size
-                    logging.debug(f"{ftype} file size: {file_size} bytes")
-                    
-                    if file_size == 0:
-                        logging.error(
-                            f"Empty {ftype} file: {fname}"
-                        )
-                        raise ValueError(f"Empty output file: {fname}")
-
-                    # Copy file to destination
-                    dst = output_dir / fname
-                    logging.info(f"Copying {ftype} to: {dst.name}")
                     try:
-                        shutil.copy2(src, dst)
-                        if not dst.exists():
-                            raise FileNotFoundError(
-                                f"Copy operation failed for {ftype}"
-                            )
-                        
-                        dst_size = dst.stat().st_size
-                        if dst_size != file_size:
-                            raise ValueError(
-                                f"Size mismatch for {ftype}: "
-                                f"src={file_size}, dst={dst_size}"
-                            )
-                        logging.info(f"Successfully created {ftype} file: {dst.name}")
-                    except Exception as e:
-                        logging.error(
-                            f"Failed to copy {ftype} file {src.name}: {str(e)}"
-                        )
+                        _copy_and_validate(src, dst)
+                        logging.info(f"Created: {dst.name}")
+                    except (FileNotFoundError, ValueError) as e:
+                        logging.error(str(e))
                         raise
 
                 return True
 
-        except subprocess.CalledProcessError as e:
-            logging.error(
-                f"addspec failed (code {e.returncode}): {e.stderr}"
-            )
-            return False
         except Exception as e:
             logging.error(f"Operation failed: {str(e)}")
             logging.debug("Details:", exc_info=True)
