@@ -5,16 +5,13 @@ install:
 		poetry install
 
 download_spectra:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_sources_lh.csv
-
-download_spectra_full_list:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_lh_full.csv
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST)
 
 download_all_instruments:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_sources_lh.csv --instruments PN M1 M2
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --instruments PN M1 M2
 
 download_m1_m2:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/deep_xmm_lh_Ms.csv --instruments M1 M2
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --instruments M1 M2
 
 combine_spectra:
 		poetry run python -m xmm_py_spec.combine_spectra
