@@ -12,6 +12,10 @@ import shutil
 from .analyze_spectral_variability import ChangeDir
 from contextlib import contextmanager
 from .analyze_spectra import fix_spectrum_paths_inplace
+from .core.validation import (
+    validate_combine_args,
+    ValidationError
+)
 
 # Add instrument type and mapping
 INSTRUMENTS = {
@@ -22,21 +26,10 @@ INSTRUMENTS = {
 }
 
 
-def validate_combine_args(args: List[str]) -> bool:
-    """Validate that essential arguments are present and properly formatted."""
-    required_params = ['pha=', 'bkg=', 'rmf=', 'arf=']
-    return all(
-        any(arg.startswith(param) for arg in args) for param in required_params
-    )
-
-
 def run_spcombine(args: List[str]) -> bool:
     """Run epicspeccombine with given arguments."""
-    if not validate_combine_args(args):
-        logging.error("Missing required parameters in combine arguments")
-        return False
-
     try:
+        validate_combine_args(args)
         cmd_str = "epicspeccombine " + " ".join(args)
         cmd = ["docker", "exec", "xmm_py_spec_container", "sh", "-c", cmd_str]
 
@@ -48,6 +41,9 @@ def run_spcombine(args: List[str]) -> bool:
         )
         logging.info(f"Task completed: {result.stdout}")
         return True
+    except ValidationError as e:
+        logging.error(f"Validation failed: {e}")
+        return False
     except subprocess.CalledProcessError as e:
         logging.error(f"Command failed: {e.stderr}")
         return False

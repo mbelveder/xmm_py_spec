@@ -58,6 +58,11 @@ from datetime import datetime
 from typing import Dict, List, Literal
 import shutil
 from .utils import load_source_list
+from .core.validation import (
+    validate_downloaded_files,
+    validate_observation_table,
+    ValidationError
+)
 import argparse
 
 from functools import wraps
@@ -326,27 +331,6 @@ def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
         print(f"Warning: Failed to update meta logs: {e}")
 
 
-def validate_download_files(
-    dir_path: Path,
-    instrument: InstrumentType = DEFAULT_INSTRUMENT
-) -> Dict[str, bool]:
-    """Validate presence of required spectral files."""
-    inst_suffix = instrument
-    required_patterns = {
-        'spectrum': f'*{inst_suffix}*SRSPEC*.FTZ',
-        'background': f'*{inst_suffix}*BGSPEC*.FTZ',
-        'arf': f'*{inst_suffix}*ARF*.FTZ',
-        'rmf': '*.rmf'
-    }
-
-    validation = {}
-    for file_type, pattern in required_patterns.items():
-        files = list(dir_path.glob(pattern))
-        validation[file_type] = bool(files)
-
-    return validation
-
-
 def download_observation(
     srcid: str, obs_id: str, src_num: int, base_dir: str,
     obs_data: Dict = None, instruments: List[InstrumentType] = None,
@@ -358,79 +342,90 @@ def download_observation(
         srcid, obs_id, src_num, base_dir, obs_data
     )
 
-    if output_dir.exists():
-        # Check each instrument directory
-        all_empty = all(
-            is_directory_empty(output_dir / LEVEL / inst)
-            for inst in instruments
-            if (output_dir / LEVEL / inst).exists()
-        )
-        if not all_empty:
-            status = "SKIPPED_EXISTS"
-            log_download_status(
-                srcid, obs_id, src_num, base_dir, status, obs_data
-            )
-            update_meta_log(obs_data, status, base_dir)
-            print(
-                f"Skipping {obs_id}_{src_num} - directory exists with files\n"
-            )
-            return True
+    try:
+        validate_observation_table([{
+            'srcid': srcid,
+            'obs_id': obs_id,
+            'src_num': src_num
+        }])
 
-    success = True
-    for instrument in instruments:
-        try:
-            tar_file = download_xmm_data(obs_id, src_num, instrument)
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Extract all files first
-            XMMNewton.get_epic_spectra(
-                tar_file,
-                source_number=src_num,
-                verbose=False,
-                path=output_dir,
-                instrument=[INSTRUMENTS[instrument]]
+        if output_dir.exists():
+            # Check each instrument directory
+            all_empty = all(
+                is_directory_empty(output_dir / LEVEL / inst)
+                for inst in instruments
+                if (output_dir / LEVEL / inst).exists()
             )
-            extract_all_files(tar_file, output_dir)
-
-            # Allow time for file system operations
-            reorganize_extracted_files(
-                output_dir, obs_id, instrument=instrument, cleanup=cleanup
-            )
-            tar_file.unlink(missing_ok=True)
-
-            # Add small delay before validation to ensure files are settled
-            import time
-            time.sleep(1)
-
-            # Now validate
-            validation = validate_download_files(
-                output_dir / LEVEL / instrument,
-                instrument=instrument
-            )
-            if all(validation.values()):
-                status = f"SUCCESS ({instrument})"
-            else:
-                missing = [k for k, v in validation.items() if not v]
-                status = (
-                    f"INCOMPLETE ({instrument}): "
-                    f"Missing {', '.join(missing)}"
+            if not all_empty:
+                status = "SKIPPED_EXISTS"
+                log_download_status(
+                    srcid, obs_id, src_num, base_dir, status, obs_data
                 )
+                update_meta_log(obs_data, status, base_dir)
+                print(
+                    f"Skipping {obs_id}_{src_num} - directory exists with files\n"
+                )
+                return True
 
-            log_download_status(
-                srcid, obs_id, src_num, base_dir, status, obs_data
-            )
-            update_meta_log(obs_data, status, base_dir)
+        success = True
+        for instrument in instruments:
+            try:
+                tar_file = download_xmm_data(obs_id, src_num, instrument)
+                output_dir.mkdir(parents=True, exist_ok=True)
 
-        except Exception as e:
-            success = False
-            status = f"ERROR ({instrument}): {str(e)}"
-            log_download_status(
-                srcid, obs_id, src_num, base_dir, status, obs_data
-            )
-            update_meta_log(obs_data, status, base_dir)
-            print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
+                # Extract all files first
+                XMMNewton.get_epic_spectra(
+                    tar_file,
+                    source_number=src_num,
+                    verbose=False,
+                    path=output_dir,
+                    instrument=[INSTRUMENTS[instrument]]
+                )
+                extract_all_files(tar_file, output_dir)
 
-    return success
+                # Allow time for file system operations
+                reorganize_extracted_files(
+                    output_dir, obs_id, instrument=instrument, cleanup=cleanup
+                )
+                tar_file.unlink(missing_ok=True)
+
+                # Add small delay before validation to ensure files are settled
+                import time
+                time.sleep(1)
+
+                # Now validate
+                validation = validate_downloaded_files(
+                    output_dir / LEVEL / instrument,
+                    instrument=instrument
+                )
+                if all(validation.values()):
+                    status = f"SUCCESS ({instrument})"
+                else:
+                    missing = [k for k, v in validation.items() if not v]
+                    status = (
+                        f"INCOMPLETE ({instrument}): "
+                        f"Missing {', '.join(missing)}"
+                    )
+
+                log_download_status(
+                    srcid, obs_id, src_num, base_dir, status, obs_data
+                )
+                update_meta_log(obs_data, status, base_dir)
+
+            except Exception as e:
+                success = False
+                status = f"ERROR ({instrument}): {str(e)}"
+                log_download_status(
+                    srcid, obs_id, src_num, base_dir, status, obs_data
+                )
+                update_meta_log(obs_data, status, base_dir)
+                print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
+
+        return success
+
+    except ValidationError as e:
+        print(f"Validation failed: {e}")
+        return False
 
 
 def process_downloads(
@@ -450,22 +445,12 @@ def process_downloads(
         )
 
 
-def validate_obs_table(obs_table: List[Dict]) -> None:
-    """Validate observation table contents."""
-    if not obs_table:
-        raise ValueError("Empty observation table provided")
-
-    required_fields = {'obs_id', 'src_num', 'srcid'}
-    if not all(field in obs_table[0] for field in required_fields):
-        raise ValueError(f"Missing required fields: {required_fields}")
-
-
 def find_incomplete_downloads(base_path: Path) -> List[str]:
     """Find and return list of incomplete downloads."""
     incomplete = []
 
     for pps_dir in base_path.glob(f"**/{LEVEL}/{DEFAULT_INSTRUMENT}/"):
-        validation = validate_download_files(pps_dir)
+        validation = validate_downloaded_files(pps_dir, instrument=DEFAULT_INSTRUMENT)
         if not all(validation.values()):
             missing = [k for k, v in validation.items() if not v]
             incomplete.append(
@@ -506,7 +491,7 @@ def download_spectra(
     cleanup: bool = True
 ) -> None:
     """Download spectral data for multiple XMM-Newton observations."""
-    validate_obs_table(obs_table)
+    validate_observation_table(obs_table)
 
     # Add session divider to human-readable log
     human_log_path = Path(base_dir) / "download_meta.log"
