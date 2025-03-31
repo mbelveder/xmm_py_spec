@@ -58,22 +58,31 @@ def ellipse_minmax(
         x: np.array, y: np.array, z: np.array,
         levels: int | np.ndarray, ax: plt.Axes
 ) -> Tuple[Tuple, Tuple]:
-    """
-    Extracts parameter errors from 2d steppar contours directly.
+    """Extract confidence intervals from 2D contour plots.
+
+    This function extracts parameter confidence intervals from 2D steppar contours
+    by analyzing the shape of confidence contours. It follows the XSPEC approach
+    where confidence regions are determined by delta chi-squared values.
+
+    Statistical methodology:
+    - Uses delta chi-squared = 2.71 for 90% confidence intervals (1 parameter)
+    - For complex contours with multiple closed regions, combines all points
+      to find the global confidence bounds
     https://heasarc.gsfc.nasa.gov/xanadu/xspec/manual/node86.html
     https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.contour.html
 
     Args:
-        x (np.array): An array of x values
-        y (np.array): An array of y values
-        z (np.array): The height values over which the contour is drawn
-        levels (int | np.ndarray): The levels of the contour
-        ax (plt.Axes): The axes to plot the contour
+        x: Array of values for first parameter (typically nH)
+        y: Array of values for second parameter (typically photon index)
+        z: Chi-squared values over the 2D parameter space
+        levels: Confidence levels for contours (delta chi-squared values)
+        ax: Matplotlib axes for plotting
 
     Returns:
-        Tuple[Tuple, Tuple]: The x and y min and max values of the contour
+        Tuple containing:
+        - x_min_max: (min, max) bounds for first parameter
+        - y_min_max: (min, max) bounds for second parameter
     """
-
     # Plot the contour
     CS = ax.contour(
         x, y, z, levels, colors=['red']
@@ -107,20 +116,39 @@ def extract_errors_from_2d_contour(
         series: pd.Series, ellipse_minmax: Callable,
         plot_savepath: str = ''
 ) -> pd.Series:
-    """
-    Extracts parameter errors from 2d steppar contours directly and adds them
-    into `series`.
+    """Extract and visualize parameter errors from 2D confidence contours.
+    
+    Creates a visualization of parameter confidence regions and extracts 
+    confidence intervals. Uses delta chi-squared statistics to determine
+    confidence bounds.
+
+    Statistical details:
+    - The innermost contour represents delta chi-squared = 2.71 (90% confidence)
+    - Filled regions between contours show confidence level transitions
+    - Best-fit values are determined from chi-squared minimum
+    - Asymmetric errors are calculated relative to best-fit values
+
+    Visual elements:
+    - Red contours: Confidence level boundaries
+    - Shaded regions: Confidence level ranges
+    - Dashed lines: Best-fit parameter values
+    - Solid black lines: Parameter confidence bounds
 
     Args:
-        series (pd.Series): A series with the contour coordinates
-        ellipse_minmax (Callable): A function that extracts minimum and
-            maximum values from the contour
+        series: Pandas Series containing:
+            - step2d_x: First parameter grid values
+            - step2d_y: Second parameter grid values 
+            - step2d_z: Chi-squared values
+            - levelvals: Confidence level values
+        ellipse_minmax: Function to extract confidence intervals
+        plot_savepath: Optional path to save contour plot
 
     Returns:
-        pd.Series: An updeted `series` with best fit values and parameter
-            errors extracted directly from 2d steppar contours.
+        Updated series with added fields:
+        - mo2_*_step_2d: Best fit values
+        - mo2_*_step_2d_lower/upper: Lower/upper confidence bounds
+        - mo2_*_step_2d_perr/nerr: Positive/negative error ranges
     """
-
     step2d_x = series['step2d_x']
     step2d_y = series['step2d_y']
     step2d_z = series['step2d_z']
