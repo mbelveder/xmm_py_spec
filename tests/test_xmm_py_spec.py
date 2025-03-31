@@ -4,9 +4,14 @@ from xmm_py_spec.utils import load_source_list
 from xmm_py_spec.download_spectra import (
     download_spectra,
     clear_log_file,
-    validate_download_files, get_source_dir, validate_obs_table,
+    get_source_dir,
     reorganize_extracted_files, calculate_delay, update_meta_log,
     validate_instrument, INSTRUMENTS
+)
+
+from xmm_py_spec.core.validation import (
+    validate_downloaded_files,
+    validate_observation_table,
 )
 
 
@@ -58,7 +63,7 @@ def test_download_spectra_logs_append(tmp_path):
     assert "456" in log_content  # New download info should be present
 
 
-def test_validate_download_files(tmp_path):
+def test_validate_downloaded_files(tmp_path):
     """Test file validation with missing and complete sets."""
     test_dir = tmp_path / "test_spectra"
     test_dir.mkdir()
@@ -70,12 +75,12 @@ def test_validate_download_files(tmp_path):
     (test_dir / "pn.rmf").touch()
 
     # Test complete set with PN instrument
-    validation = validate_download_files(test_dir, "PN")
+    validation = validate_downloaded_files(test_dir, "PN")
     assert all(validation.values())
 
     # Test missing file
     (test_dir / "pn.rmf").unlink()
-    validation = validate_download_files(test_dir, "PN")
+    validation = validate_downloaded_files(test_dir, "PN")
     assert not validation['rmf']
     assert validation['spectrum']
 
@@ -94,16 +99,16 @@ def test_get_source_dir():
     assert path == Path("test_data/123456_789")
 
 
-def test_validate_obs_table():
+def test_validate_observation_table():
     """Test observation table validation."""
     valid_table = [{'obs_id': '1', 'src_num': '1', 'srcid': '1'}]
-    validate_obs_table(valid_table)  # Should not raise
+    validate_observation_table(valid_table)  # Should not raise
 
     with pytest.raises(ValueError, match="Empty observation table"):
-        validate_obs_table([])
+        validate_observation_table([])
 
     with pytest.raises(ValueError, match="Missing required fields"):
-        validate_obs_table([{'obs_id': '1'}])
+        validate_observation_table([{'obs_id': '1'}])
 
 
 def test_calculate_delay():
@@ -187,7 +192,7 @@ def test_validate_instrument():
         validate_instrument("invalid")
 
 
-def test_validate_download_files_with_instrument(tmp_path):
+def test_validate_downloaded_files_with_instrument(tmp_path):
     """Test file validation with different instruments."""
     test_dir = tmp_path / "test_spectra"
     test_dir.mkdir()
@@ -198,7 +203,7 @@ def test_validate_download_files_with_instrument(tmp_path):
     (test_dir / "PN_SRCARF.FTZ").touch()
     (test_dir / "pn.rmf").touch()
 
-    validation = validate_download_files(test_dir, "PN")
+    validation = validate_downloaded_files(test_dir, "PN")
     assert all(validation.values())
 
     # Test M1 files
@@ -207,7 +212,7 @@ def test_validate_download_files_with_instrument(tmp_path):
     (test_dir / "M1_SRCARF.FTZ").touch()
     (test_dir / "m1.rmf").touch()
 
-    validation = validate_download_files(test_dir, "M1")
+    validation = validate_downloaded_files(test_dir, "M1")
     assert all(validation.values())
 
 
