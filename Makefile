@@ -16,6 +16,12 @@ download_m1_m2:
 combine_spectra:
 		poetry run python -m xmm_py_spec.combine_spectra
 
+combine_spectra_pn_addspec:
+		poetry run python -m xmm_py_spec.combine_spectra --instruments PN --method ADDSPEC --gap-threshold none
+
+combine_spectra_addspec_all:
+		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2 --method ADDSPEC --gap-threshold none  --group
+
 combine_spectra_all:
 		poetry run python -m xmm_py_spec.combine_spectra --instruments PN M1 M2
 

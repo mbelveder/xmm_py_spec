@@ -117,7 +117,7 @@ def extract_errors_from_2d_contour(
         plot_savepath: str = ''
 ) -> pd.Series:
     """Extract and visualize parameter errors from 2D confidence contours.
-    
+
     Creates a visualization of parameter confidence regions and extracts 
     confidence intervals. Uses delta chi-squared statistics to determine
     confidence bounds.

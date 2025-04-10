@@ -80,8 +80,12 @@ def get_instrument_filenames(
             'response': f'combined_response_{instrument}.rmf',
             'grouped': f'combined_spectrum_grouped_{instrument}.pha'
         }
-    else:  # individual
+    elif mode == "individual":
         return {
+            # 'spectrum': 'spectrum_{instrument}_addspec.pha',
+            # 'background': 'spectrum_{instrument}_addspec.bak',
+            # 'response': 'spectrum_{instrument}_addspec.rsp',
+            # 'grouped': 'spectrum_{instrument}_addspec_grouped.pha'
             'spectrum': f'*{instrument}*SRSPEC*.FTZ',
             'background': f'*{instrument}*BGSPEC*.FTZ',
             'response': f'*{instrument.lower()}*.rmf',

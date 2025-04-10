@@ -17,6 +17,16 @@ from .core.validation import (
     ValidationError
 )
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('data/downloaded_spectra/combine_spectra.log')
+    ]
+)
+
 # Add instrument type and mapping
 INSTRUMENTS = {
     "PN": "PN",
@@ -66,7 +76,7 @@ def run_ftgrouppha(
     """
     try:
         if input_filename:
-            base_name = input_filename.rsplit(".", 1)[0]
+            base_name = input_filename.rsplit(".", 1)[0].replace('*', '')
             out_file = str(source_dir / f'{base_name}_grouped.pha')
 
             src_ext = '.pha' if method == CombineMethod.ADDSPEC else '.ds'
@@ -329,6 +339,7 @@ def combine_source_spectra(
             base_names = {'spectrum': f"{base_name}{suffix}"}
     else:
         base_names = output_filenames
+        logging.info(base_names)
 
     success = False
     if method == CombineMethod.EPICSPECCOMBINE:
@@ -440,12 +451,12 @@ def _run_addspec_cmd(list_file: Path, output_base: str) -> None:
     cmd = [
         "addspec",
         f"infil={list_file.name}",
-        f"outfil={output_base}",
+        f"outfil={output_base.replace('*', '')}",
         "qaddrmf=yes",
         "qsubback=yes",
         "clobber=yes"
     ]
-    logging.debug(f"Running: {' '.join(cmd)}")
+    logging.info(f"Running: {' '.join(cmd)}")
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
@@ -488,8 +499,8 @@ def run_addspec(
                 # Process output files
                 output_base = output_filenames['spectrum'].rsplit('.', 1)[0]
                 for ext in ['.pha', '.bak', '.rsp']:
-                    src = tmp_path / f"{output_base}{ext}"
-                    dst = output_dir / f"{output_base}{ext}"
+                    src = tmp_path / f"{output_base.replace('*', '')}{ext}"
+                    dst = output_dir / f"{output_base.replace('*', '')}{ext}"
 
                     try:
                         _copy_and_validate(src, dst)
@@ -554,9 +565,9 @@ def main():
     )
     parser.add_argument(
         '--gap-threshold',
-        type=int,
+        type=lambda x: None if x.lower() == 'none' else int(x),
         default=30,
-        help="Gap threshold for spectrum combination"
+        help="Gap threshold for spectrum combination (use 'none' to disable)"
     )
     parser.add_argument(
         '--method',
