@@ -12,6 +12,7 @@ from xmm_py_spec.download_spectra import (
 from xmm_py_spec.core.validation import (
     validate_downloaded_files,
     validate_observation_table,
+    DataValidationError
 )
 
 
@@ -37,7 +38,9 @@ def test_invalid_csv(invalid_csv_path):
 
 # Test handling of empty observation table
 def test_download_spectra_empty_table():
-    with pytest.raises(ValueError, match="Empty observation"):
+    with pytest.raises(
+        DataValidationError, match="Empty observation table provided"
+    ):
         download_spectra([])
 
 
@@ -104,10 +107,12 @@ def test_validate_observation_table():
     valid_table = [{'obs_id': '1', 'src_num': '1', 'srcid': '1'}]
     validate_observation_table(valid_table)  # Should not raise
 
-    with pytest.raises(ValueError, match="Empty observation table"):
+    with pytest.raises(
+        DataValidationError, match="Empty observation table provided"
+    ):
         validate_observation_table([])
 
-    with pytest.raises(ValueError, match="Missing required fields"):
+    with pytest.raises(DataValidationError, match="Missing required fields"):
         validate_observation_table([{'obs_id': '1'}])
 
 
