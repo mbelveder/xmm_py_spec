@@ -60,9 +60,10 @@ def ellipse_minmax(
 ) -> Tuple[Tuple, Tuple]:
     """Extract confidence intervals from 2D contour plots.
 
-    This function extracts parameter confidence intervals from 2D steppar contours
-    by analyzing the shape of confidence contours. It follows the XSPEC approach
-    where confidence regions are determined by delta chi-squared values.
+    This function extracts parameter confidence intervals from 2D steppar
+    contours by analyzing the shape of confidence contours. It follows the
+    XSPEC approach where confidence regions are determined by delta
+    chi-squared values.
 
     Statistical methodology:
     - Uses delta chi-squared = 2.71 for 90% confidence intervals (1 parameter)
@@ -118,7 +119,7 @@ def extract_errors_from_2d_contour(
 ) -> pd.Series:
     """Extract and visualize parameter errors from 2D confidence contours.
 
-    Creates a visualization of parameter confidence regions and extracts 
+    Creates a visualization of parameter confidence regions and extracts
     confidence intervals. Uses delta chi-squared statistics to determine
     confidence bounds.
 
@@ -137,7 +138,7 @@ def extract_errors_from_2d_contour(
     Args:
         series: Pandas Series containing:
             - step2d_x: First parameter grid values
-            - step2d_y: Second parameter grid values 
+            - step2d_y: Second parameter grid values
             - step2d_z: Chi-squared values
             - levelvals: Confidence level values
         ellipse_minmax: Function to extract confidence intervals
