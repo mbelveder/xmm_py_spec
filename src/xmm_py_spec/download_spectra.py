@@ -363,7 +363,8 @@ def download_observation(
                 )
                 update_meta_log(obs_data, status, base_dir)
                 print(
-                    f"Skipping {obs_id}_{src_num} - directory exists with files\n"
+                    f"Skipping {obs_id}_{src_num}"
+                    "directory exists with files\n"
                 )
                 return True
 
@@ -450,7 +451,9 @@ def find_incomplete_downloads(base_path: Path) -> List[str]:
     incomplete = []
 
     for pps_dir in base_path.glob(f"**/{LEVEL}/{DEFAULT_INSTRUMENT}/"):
-        validation = validate_downloaded_files(pps_dir, instrument=DEFAULT_INSTRUMENT)
+        validation = validate_downloaded_files(
+            pps_dir, instrument=DEFAULT_INSTRUMENT
+        )
         if not all(validation.values()):
             missing = [k for k, v in validation.items() if not v]
             incomplete.append(
