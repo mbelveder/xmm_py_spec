@@ -8,7 +8,10 @@ download_spectra:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST)
 
 download_all_instruments:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --instruments PN M1 M2
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --base-dir $(BASE_DIR) --instruments PN M1 M2
+
+download_ODF:
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --base-dir $(BASE_DIR) --level $(LEVEL)
 
 download_m1_m2:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --instruments M1 M2
