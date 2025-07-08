@@ -274,7 +274,17 @@ def reorganize_extracted_files(
     cleanup: bool = True,
     level: str = LEVEL
 ) -> None:
-    """Copy files from astroquery's structure to our directory structure."""
+    """Copy files from astroquery's structure to our directory structure.
+
+    Args:
+        base_path: Base directory for the observation.
+        obs_id: XMM-Newton observation ID.
+        instrument: Instrument name (PN, M1, or M2).
+        cleanup: If True, remove the original astroquery extraction directory
+            after copying files. Set to False to keep the original files for
+            debugging or inspection.
+        level: Data level (PPS or ODF).
+    """
     source_dir = base_path / obs_id / level.lower()
     if not source_dir.exists():
         return
