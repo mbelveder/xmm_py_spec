@@ -74,8 +74,11 @@ import random
 import tarfile
 import json
 import pandas as pd
+import gzip
 
-LEVEL = "PPS"
+LEVEL_PPS = "PPS"
+LEVEL_ODF = "ODF"
+LEVEL = LEVEL_PPS  # Default
 # Update instrument handling
 InstrumentType = Literal["PN", "M1", "M2"]
 INSTRUMENTS: Dict[InstrumentType, str] = {
@@ -84,6 +87,7 @@ INSTRUMENTS: Dict[InstrumentType, str] = {
     "M2": "M2"
 }
 DEFAULT_INSTRUMENT = "PN"
+SUPPORTED_LEVELS = [LEVEL_PPS, LEVEL_ODF]
 
 # Network-related errors that should trigger retry logic
 NETWORK_ERRORS = (
@@ -104,50 +108,58 @@ def validate_instrument(instrument: str) -> InstrumentType:
     )
 
 
-def get_source_dir(base_dir: str, srcid: str, obs_data: Dict) -> Path:
-    """Generate source directory path based on srcid and optional user_srcid."""
+def get_source_dir(base_dir: str, srcid: str, obs_data: Dict, level: str = LEVEL) -> Path:
+    """Generate source directory path based on srcid, optional user_srcid, and level."""
     if 'user_srcid' in obs_data and obs_data['user_srcid']:
-        return Path(base_dir) / f"{srcid}_{obs_data['user_srcid']}"
-    return Path(base_dir) / str(srcid)
+        return Path(base_dir) / f"{srcid}_{obs_data['user_srcid']}" / level
+    return Path(base_dir) / str(srcid) / level
 
 
 def log_download_status(
     srcid: str, obs_id: str, src_num: str, base_dir: str, status: str,
-    obs_data: Dict = None
+    obs_data: Dict = None, level: str = LEVEL
 ) -> None:
     """Log download attempt status to a human-readable text file."""
     obs_data = obs_data or {}
-    log_dir = get_source_dir(base_dir, srcid, obs_data)
+    log_dir = get_source_dir(base_dir, srcid, obs_data, level)
     log_dir.mkdir(parents=True, exist_ok=True)
-
     log_file = log_dir / "download.log"
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    message = f"[{timestamp}] obs_id {obs_id} src_num {src_num}: {status}\n"
-
+    if level == LEVEL_ODF:
+        message = f"[{timestamp}] obs_id {obs_id}: {status}\n"
+    else:
+        message = f"[{timestamp}] obs_id {obs_id} src_num {src_num}: {status}\n"
     with open(log_file, 'a') as f:
         f.write(message)
 
 
-def clear_log_file(srcid: str, base_dir: str, obs_data: Dict = None) -> None:
+def clear_log_file(
+        srcid: str, base_dir: str, obs_data: Dict = None, level: str = LEVEL
+    ) -> None:
     """Clear existing log file for a new download session."""
     obs_data = obs_data or {}
-    log_dir = get_source_dir(base_dir, srcid, obs_data)
+    log_dir = get_source_dir(base_dir, srcid, obs_data, level)
     log_file = log_dir / "download.log"
     if log_file.exists():
-        # Add visual divider before clearing
         with open(log_file, 'a') as f:
             f.write("\n" + "=" * 80 + "\n\n")
 
 
 def prepare_download(
     srcid: str, obs_id: str, src_num: int, base_dir: str,
-    obs_data: Dict = None
+    obs_data: Dict = None, level: str = LEVEL
 ) -> tuple[Path, str]:
-    """Prepare download paths and normalize observation ID."""
+    """Prepare download paths and normalize observation ID.
+
+    For ODF, do not use src_num or obs_id subfolder in directory naming.
+    """
     if len(obs_id) < 10:
         obs_id = f'{int(obs_id):010d}'
-    source_dir = get_source_dir(base_dir, srcid, obs_data or {})
-    output_dir = source_dir / f"{obs_id}_{src_num}"
+    source_dir = get_source_dir(base_dir, srcid, obs_data or {}, level)
+    if level == LEVEL_ODF:
+        output_dir = source_dir
+    else:
+        output_dir = source_dir / f"{obs_id}_{src_num}"
     return output_dir, obs_id
 
 
@@ -188,7 +200,9 @@ def retry_on_network_error(max_retries=3, initial_delay=1):
 def download_xmm_data(
     obs_id: str,
     src_num: int,
-    instrument: InstrumentType = DEFAULT_INSTRUMENT
+    instrument: InstrumentType = DEFAULT_INSTRUMENT,
+    level: str = LEVEL,
+    output_dir: Path = None
 ) -> Path:
     """Download XMM data for a specific observation and source.
 
@@ -196,23 +210,51 @@ def download_xmm_data(
         obs_id: XMM-Newton observation ID
         src_num: Source number within observation
         instrument: Instrument name (PN, M1, or M2)
+        level: Data level (PPS or ODF)
+        output_dir: Directory to save the downloaded file
 
     Returns:
         Path to downloaded tar file
 
     Raises:
         Network errors are automatically retried
+        FileNotFoundError if no tar file is found after download
         Other errors propagate to caller
     """
-    tar_file = Path(f'{obs_id}_{instrument}.tar')
-    XMMNewton.download_data(
-        obs_id,
-        level=LEVEL,
-        extension="FTZ,PNG,PDF",
-        instname=INSTRUMENTS[instrument],
-        sourceno=f'{src_num:04X}',
-        filename=f"{obs_id}_{instrument}"
-    )
+    if output_dir is None:
+        output_dir = Path('.')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if level == LEVEL_PPS:
+        tar_file = output_dir / f'{obs_id}_{instrument}_{level}.tar'
+        print(str(tar_file.with_suffix('')))
+        XMMNewton.download_data(
+            obs_id,
+            level=level,
+            extension="FTZ,PNG,PDF",
+            instname=INSTRUMENTS[instrument],
+            sourceno=f'{src_num:04X}',
+            filename=str(tar_file.with_suffix(''))
+        )
+    elif level == LEVEL_ODF:
+        tar_file = output_dir / f'{obs_id}_{level}.tar'
+        XMMNewton.download_data(
+            obs_id,
+            level=level,
+            filename=str(tar_file.with_suffix(''))
+        )
+    # Check for .tar or .tar.gz existence
+    tar_gz_file = tar_file.with_suffix('.tar.gz')
+    # If not in output_dir, check root dir for ODF .tar.gz and move if found
+    if level == LEVEL_ODF and not tar_gz_file.exists():
+        root_tar_gz = Path(tar_gz_file.name)
+        if root_tar_gz.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(root_tar_gz), str(tar_gz_file))
+    if not tar_file.exists() and not tar_gz_file.exists():
+        raise FileNotFoundError(
+            f"Neither {tar_file} nor {tar_gz_file} was found after download. "
+            f"Check if the download succeeded and the output path is correct."
+        )
     return tar_file
 
 
@@ -229,34 +271,27 @@ def reorganize_extracted_files(
     base_path: Path,
     obs_id: str,
     instrument: InstrumentType = DEFAULT_INSTRUMENT,
-    cleanup: bool = True
+    cleanup: bool = True,
+    level: str = LEVEL
 ) -> None:
     """Copy files from astroquery's structure to our directory structure."""
-    source_dir = base_path / obs_id / "pps"
+    source_dir = base_path / obs_id / level.lower()
     if not source_dir.exists():
         return
-
-    target_dir = base_path / LEVEL / instrument
+    target_dir = base_path / level / instrument
     target_dir.mkdir(parents=True, exist_ok=True)
-
-    # Map instrument names to their file patterns
     inst_patterns = {
-        "PN": "*PN*",  # PN patterns
-        "M1": "*M1*",  # MOS1 patterns
-        "M2": "*M2*"   # MOS2 patterns
+        "PN": "*PN*",
+        "M1": "*M1*",
+        "M2": "*M2*"
     }
-
-    # Copy instrument-specific files
     pattern = inst_patterns[instrument]
     for file_path in source_dir.glob(pattern):
         target_path = target_dir / file_path.name
         shutil.copy2(str(file_path), str(target_path))
-
-    # Copy common files (RMFs, etc.)
     for file_path in source_dir.glob("*.rmf"):
         target_path = target_dir / file_path.name
         shutil.copy2(str(file_path), str(target_path))
-
     if cleanup and source_dir.exists():
         shutil.rmtree(source_dir.parent)
 
@@ -266,8 +301,26 @@ def is_directory_empty(path: Path) -> bool:
     return not any(path.iterdir())
 
 
+def ensure_tar_file(tar_path: Path) -> Path:
+    """Ensure a .tar file exists, decompress .tar.gz if needed.
+
+    Args:
+        tar_path: Path to the expected .tar file.
+
+    Returns:
+        Path to the .tar file.
+    """
+    tar_gz_path = tar_path.with_suffix('.tar.gz')
+    if not tar_path.exists() and tar_gz_path.exists():
+        with gzip.open(tar_gz_path, 'rb') as f_in:
+            with open(tar_path, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+    return tar_path
+
+
 def extract_all_files(tar_file: Path, output_dir: Path) -> None:
     """Extract all files from tarfile to output directory."""
+    tar_file = ensure_tar_file(tar_file)
     target_extensions = ['.FTZ', '.PNG', '.PDF']
     with tarfile.open(tar_file, 'r') as tar:
         for member in tar.getmembers():
@@ -275,7 +328,7 @@ def extract_all_files(tar_file: Path, output_dir: Path) -> None:
                 tar.extract(member, output_dir)
 
 
-def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
+def update_meta_log(obs_data: Dict, status: str, base_dir: str, level: str = LEVEL) -> None:
     """Update both CSV and human-readable meta log files."""
     base_path = Path(base_dir)
     csv_path = base_path / "download_meta.csv"
@@ -315,14 +368,23 @@ def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
 
         # Update human-readable log
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        human_msg = (
-            f"[{timestamp}] "
-            f"Source: {obs_data['srcid']} "
-            f"(User ID: {obs_data.get('user_srcid', 'N/A')}) "
-            f"ObsID: {obs_data['obs_id']} "
-            f"SrcNum: {obs_data['src_num']} "
-            f"Status: {status}\n"
-        )
+        if level == LEVEL_ODF:
+            human_msg = (
+                f"[{timestamp}] "
+                f"Source: {obs_data['srcid']} "
+                f"(User ID: {obs_data.get('user_srcid', 'N/A')}) "
+                f"ObsID: {obs_data['obs_id']} "
+                f"Status: {status}\n"
+            )
+        else:
+            human_msg = (
+                f"[{timestamp}] "
+                f"Source: {obs_data['srcid']} "
+                f"(User ID: {obs_data.get('user_srcid', 'N/A')}) "
+                f"ObsID: {obs_data['obs_id']} "
+                f"SrcNum: {obs_data['src_num']} "
+                f"Status: {status}\n"
+            )
 
         with open(human_log_path, 'a') as f:
             f.write(human_msg)
@@ -334,96 +396,110 @@ def update_meta_log(obs_data: Dict, status: str, base_dir: str) -> None:
 def download_observation(
     srcid: str, obs_id: str, src_num: int, base_dir: str,
     obs_data: Dict = None, instruments: List[InstrumentType] = None,
-    cleanup: bool = True
+    cleanup: bool = True, level: str = LEVEL
 ) -> bool:
     """Download and organize data for a single XMM-Newton observation."""
-    instruments = instruments or [DEFAULT_INSTRUMENT]
+    if level == LEVEL_PPS:
+        instruments = instruments or [DEFAULT_INSTRUMENT]
     output_dir, obs_id = prepare_download(
-        srcid, obs_id, src_num, base_dir, obs_data
+        srcid, obs_id, src_num, base_dir, obs_data, level
     )
-
     try:
         validate_observation_table([{
             'srcid': srcid,
             'obs_id': obs_id,
             'src_num': src_num
         }])
-
-        if output_dir.exists():
-            # Check each instrument directory
-            all_empty = all(
-                is_directory_empty(output_dir / LEVEL / inst)
-                for inst in instruments
-                if (output_dir / LEVEL / inst).exists()
-            )
-            if not all_empty:
-                status = "SKIPPED_EXISTS"
-                log_download_status(
-                    srcid, obs_id, src_num, base_dir, status, obs_data
+        if level == LEVEL_PPS:
+            if output_dir.exists():
+                all_empty = all(
+                    is_directory_empty(output_dir / level / inst)
+                    for inst in instruments
+                    if (output_dir / level / inst).exists()
                 )
-                update_meta_log(obs_data, status, base_dir)
-                print(
-                    f"Skipping {obs_id}_{src_num}"
-                    "directory exists with files\n"
-                )
-                return True
-
-        success = True
-        for instrument in instruments:
-            try:
-                tar_file = download_xmm_data(obs_id, src_num, instrument)
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                # Extract all files first
-                XMMNewton.get_epic_spectra(
-                    tar_file,
-                    source_number=src_num,
-                    verbose=False,
-                    path=output_dir,
-                    instrument=[INSTRUMENTS[instrument]]
-                )
-                extract_all_files(tar_file, output_dir)
-
-                # Allow time for file system operations
-                reorganize_extracted_files(
-                    output_dir, obs_id, instrument=instrument, cleanup=cleanup
-                )
-                tar_file.unlink(missing_ok=True)
-
-                # Add small delay before validation to ensure files are settled
-                import time
-                time.sleep(1)
-
-                # Now validate
-                validation = validate_downloaded_files(
-                    output_dir / LEVEL / instrument,
-                    instrument=instrument
-                )
-                if all(validation.values()):
-                    status = f"SUCCESS ({instrument})"
-                else:
-                    missing = [k for k, v in validation.items() if not v]
-                    status = (
-                        f"INCOMPLETE ({instrument}): "
-                        f"Missing {', '.join(missing)}"
+                if not all_empty:
+                    status = "SKIPPED_EXISTS"
+                    log_download_status(
+                        srcid, obs_id, src_num, base_dir, status, obs_data, level
                     )
-
+                    update_meta_log(obs_data, status, base_dir)
+                    print(
+                        f"Skipping {obs_id}_{src_num}"
+                        "directory exists with files\n"
+                    )
+                    return True
+            success = True
+            for instrument in instruments:
+                try:
+                    tar_file = download_xmm_data(
+                        obs_id, src_num, instrument, level, output_dir
+                    )
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    XMMNewton.get_epic_spectra(
+                        tar_file,
+                        source_number=src_num,
+                        verbose=False,
+                        path=output_dir,
+                        instrument=[INSTRUMENTS[instrument]]
+                    )
+                    extract_all_files(tar_file, output_dir)
+                    reorganize_extracted_files(
+                        output_dir, obs_id, instrument=instrument,
+                        cleanup=cleanup, level=level
+                    )
+                    tar_file.unlink(missing_ok=True)
+                    import time
+                    time.sleep(1)
+                    validation = validate_downloaded_files(
+                        output_dir / level / instrument,
+                        instrument=instrument
+                    )
+                    if all(validation.values()):
+                        status = f"SUCCESS ({instrument})"
+                    else:
+                        missing = [k for k, v in validation.items() if not v]
+                        status = (
+                            f"INCOMPLETE ({instrument}): "
+                            f"Missing {', '.join(missing)}"
+                        )
+                    log_download_status(
+                        srcid, obs_id, src_num, base_dir, status,
+                        obs_data, level
+                    )
+                    update_meta_log(obs_data, status, base_dir)
+                except Exception as e:
+                    success = False
+                    status = f"ERROR ({instrument}): {str(e)}"
+                    log_download_status(
+                        srcid, obs_id, src_num, base_dir, status,
+                        obs_data, level
+                    )
+                    update_meta_log(obs_data, status, base_dir)
+                    print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
+            return success
+        else:
+            # ODF or other non-PPS level
+            try:
+                tar_file = download_xmm_data(
+                    obs_id, src_num, level=level, output_dir=output_dir
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
+                extract_all_files(tar_file, output_dir)
+                tar_file.unlink(missing_ok=True)
+                status = "SUCCESS (ODF)"
                 log_download_status(
-                    srcid, obs_id, src_num, base_dir, status, obs_data
+                    srcid, obs_id, src_num, base_dir, status, obs_data, level
                 )
                 update_meta_log(obs_data, status, base_dir)
-
+                return True
             except Exception as e:
-                success = False
-                status = f"ERROR ({instrument}): {str(e)}"
+                status = f"ERROR (ODF): {str(e)}"
                 log_download_status(
-                    srcid, obs_id, src_num, base_dir, status, obs_data
+                    srcid, obs_id, src_num, base_dir, status, obs_data, level
                 )
                 update_meta_log(obs_data, status, base_dir)
                 print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
-
-        return success
-
+                return False
     except ValidationError as e:
         print(f"Validation failed: {e}")
         return False
@@ -431,7 +507,7 @@ def download_observation(
 
 def process_downloads(
         obs_table: List[Dict], base_dir: str, instruments: List[InstrumentType],
-        cleanup: bool = True
+        cleanup: bool = True, level: str = LEVEL
 ) -> None:
     """Process all downloads from the observation table."""
     for obs in obs_table:
@@ -442,7 +518,8 @@ def process_downloads(
             base_dir,
             obs,
             instruments=instruments,
-            cleanup=cleanup
+            cleanup=cleanup,
+            level=level
         )
 
 
@@ -491,33 +568,31 @@ def download_spectra(
     obs_table: List[Dict],
     base_dir: str = "data/downloaded_spectra",
     instruments: List[InstrumentType] = None,
-    cleanup: bool = True
+    cleanup: bool = True,
+    level: str = LEVEL
 ) -> None:
-    """Download spectral data for multiple XMM-Newton observations."""
-    validate_observation_table(obs_table)
+    """Download spectral data for multiple XMM-Newton observations.
 
-    # Add session divider to human-readable log
+    Creates the base_dir if it does not exist.
+    """
+    Path(base_dir).mkdir(parents=True, exist_ok=True)
+    validate_observation_table(obs_table)
     human_log_path = Path(base_dir) / "download_meta.log"
     with open(human_log_path, 'a') as f:
         f.write(f"\n{'='*80}\n")
         f.write(f"Starting new download session at {datetime.now()}\n\n")
-
-    # Clear CSV meta log for new session
     csv_path = Path(base_dir) / "download_meta.csv"
     if csv_path.exists():
         csv_path.unlink()
-
-    # Clear individual logs
     seen_sources = set()
     for obs in obs_table:
         source_key = (obs['srcid'], obs.get('user_srcid'))
         if source_key not in seen_sources:
             seen_sources.add(source_key)
-            clear_log_file(obs['srcid'], base_dir, obs)
-
+            clear_log_file(obs['srcid'], base_dir, obs, level)
     try:
         process_downloads(
-            obs_table, base_dir, instruments=instruments, cleanup=cleanup
+            obs_table, base_dir, instruments=instruments, cleanup=cleanup, level=level
         )
         validate_all_downloads(base_dir)  # Add final validation
     except Exception as e:
@@ -536,7 +611,8 @@ def main():
     parser.add_argument(
         '--base-dir',
         default="data/downloaded_spectra/",
-        help="Base directory for downloads (default: data/downloaded_spectra)")
+        help="Base directory for downloads (default: data/downloaded_spectra)"
+    )
     parser.add_argument(
         '--keep-source',
         action='store_true',
@@ -547,19 +623,30 @@ def main():
         nargs='+',
         choices=list(INSTRUMENTS.keys()),
         default=[DEFAULT_INSTRUMENT],
-        help="Instruments to download (default: PN)"
+        help="Instruments to download (default: PN). Only used for PPS."
     )
-
+    parser.add_argument(
+        '--level',
+        type=str,
+        choices=SUPPORTED_LEVELS,
+        default=LEVEL_PPS,
+        help="Data level to download (PPS or ODF; default: PPS)"
+    )
     args = parser.parse_args()
-
     try:
         obs_table = load_source_list(args.csv_path)
         print("\nStarting XMM download using astroquery...\n")
+        # Only use instruments for PPS
+        if args.level == LEVEL_PPS:
+            instruments = args.instruments
+        else:
+            instruments = None
         download_spectra(
             obs_table,
             base_dir=args.base_dir,
-            instruments=args.instruments,
-            cleanup=not args.keep_source
+            instruments=instruments,
+            cleanup=not args.keep_source,
+            level=args.level
         )
     except Exception as e:
         print(f"Download failed: {e}")
