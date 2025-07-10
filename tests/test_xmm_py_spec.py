@@ -58,7 +58,7 @@ def test_download_spectra_logs_append(tmp_path):
     log_file.write_text("old content\n")
 
     obs_table = [{'srcid': '123', 'obs_id': '456', 'src_num': '7'}]
-    download_spectra(obs_table, base_dir=str(tmp_path))
+    download_spectra(obs_table, download_path=str(tmp_path))
 
     log_content = log_file.read_text()
     assert log_file.exists()
@@ -90,15 +90,15 @@ def test_validate_downloaded_files(tmp_path):
 
 def test_get_source_dir():
     """Test source directory path generation."""
-    base_dir = "test_data"
+    download_path = "test_data"
     srcid = "123456"
 
     # Test without user_srcid
-    path = get_source_dir(base_dir, srcid, {})
+    path = get_source_dir(download_path, srcid, {})
     assert path == Path("test_data/123456")
 
     # Test with user_srcid
-    path = get_source_dir(base_dir, srcid, {'user_srcid': '789'})
+    path = get_source_dir(download_path, srcid, {'user_srcid': '789'})
     assert path == Path("test_data/123456_789")
 
 
@@ -138,14 +138,14 @@ def mock_obs_data():
 
 def test_meta_logging(tmp_path, mock_obs_data):
     """Test meta logging functionality."""
-    base_dir = tmp_path
+    download_path = tmp_path
     status = "SUCCESS"
 
     # Test initial log creation
-    update_meta_log(mock_obs_data, status, base_dir)
+    update_meta_log(mock_obs_data, status, download_path)
 
-    log_path = base_dir / "download_meta.log"
-    csv_path = base_dir / "download_meta.csv"
+    log_path = download_path / "download_meta.log"
+    csv_path = download_path / "download_meta.csv"
 
     assert log_path.exists()
     assert csv_path.exists()

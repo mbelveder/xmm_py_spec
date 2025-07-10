@@ -5,13 +5,13 @@ install:
 		poetry install
 
 download_PPS_PN:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --base-dir $(BASE_DIR)
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH)
 
 download_all_instruments:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --base-dir $(BASE_DIR) --instruments PN M1 M2
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH) --instruments PN M1 M2
 
 download_ODF:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --base-dir $(BASE_DIR) --level ODF
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH) --level ODF
 
 download_m1_m2:
 		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --instruments M1 M2

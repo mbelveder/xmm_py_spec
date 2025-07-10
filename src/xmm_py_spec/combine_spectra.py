@@ -168,7 +168,7 @@ def convert_to_docker_path(path: Path) -> str:
             raise ValueError(
                 "Could not find 'data' in path structure"
             )
-        # Include all parts after base_dir
+        # Include all parts after download_path
         relative_path = '/'.join(parts[base_dir_idx:])
         # Prepend with app/
         docker_path = Path('/app') / relative_path
@@ -518,16 +518,16 @@ def run_addspec(
 
 
 def combine_spectra(
-    base_dir: str = "data/downloaded_spectra",
+    download_path: str = "data/downloaded_spectra",
     gap_threshold: int = 30,
     instruments: List[InstrumentType] = None,
     group: bool = False,
     method: CombineMethod = CombineMethod.EPICSPECCOMBINE
 ) -> None:
     """Combine spectra for each source and optionally group them."""
-    base_path = Path(base_dir)
+    base_path = Path(download_path)
     if not base_path.exists():
-        logging.error(f"Base directory {base_dir} does not exist")
+        logging.error(f"Base directory {download_path} does not exist")
         return
 
     instruments = instruments or ["PN"]
@@ -547,7 +547,7 @@ def main():
         description="Combine and optionally group XMM-Newton spectra."
     )
     parser.add_argument(
-        '--base-dir',
+        '--download-path',
         default="data/downloaded_spectra",
         help="Base directory for spectra (default: data/downloaded_spectra)"
     )
@@ -581,7 +581,7 @@ def main():
     method = CombineMethod[args.method]
     print(method)
     combine_spectra(
-        args.base_dir, args.gap_threshold, args.instruments,
+        args.download_path, args.gap_threshold, args.instruments,
         args.group, method=method
     )
 

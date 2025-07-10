@@ -17,7 +17,7 @@ Could be retrieved from a catalog, e. g. [4XMM-DR14](http://xmmssc.irap.omp.eu/C
 ## Result file structure
 
 ```bash
-base_dir/
+download_path/
 ├── download_meta.log      # Human-readable session log
 ├── download_meta.csv      # Machine-readable download status
 └── srcid_user_srcid/     # Source directory (user_srcid is optional)

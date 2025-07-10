@@ -18,14 +18,14 @@ INSTRUMENTS = {
 }
 
 
-def _get_spectra_path(source_id: str, spec_type: str, base_dir: Path) -> Path:
+def _get_spectra_path(source_id: str, spec_type: str, download_path: Path) -> Path:
     """Get the path to spectra directory."""
     if spec_type == "individual":
         # For individual mode, just return the downloaded_spectra path
-        return base_dir / "downloaded_spectra"
+        return download_path / "downloaded_spectra"
     else:
         # For clustered, go to the clusters directory
-        return base_dir / "clustered_spectra" / source_id
+        return download_path / "clustered_spectra" / source_id
 
 
 def _get_required_files(
@@ -127,14 +127,14 @@ def _fix_spectrum_paths(spectrum: Path) -> bool:
 
 def _process_spectra(
         source: Source,
-        base_dir: Path, insturment,
+        download_path: Path, insturment,
         method: str = "epicspeccombine"
 ) -> Optional[pd.DataFrame]:
     """Process all spectra for a source."""
     try:
         results_df = analyze_source(
             source,
-            base_dir,
+            download_path,
             insturment,
             method
         )
@@ -152,7 +152,7 @@ def analyze_source_spectra(
     source_id: str,
     params: dict,
     spec_type: Literal["individual", "clustered"],
-    base_dir: Path,
+    download_path: Path,
     gap_threshold: Optional[int] = None,
     instruments: List[InstrumentType] = None,
     method: str = "epicspeccombine"
@@ -164,7 +164,7 @@ def analyze_source_spectra(
         source_id: Source identifier
         params: Source parameters
         spec_type: Type of spectra to analyze
-        base_dir: Base directory for data
+        download_path: Base directory for data
         gap_threshold: Gap threshold for clustered spectra
         instruments: List of instruments to analyze
         method: Method used to combine spectra
@@ -172,7 +172,7 @@ def analyze_source_spectra(
     instruments = instruments or ["PN"]
 
     for instrument in instruments:
-        spec_path = _get_spectra_path(source_id, spec_type, base_dir)
+        spec_path = _get_spectra_path(source_id, spec_type, download_path)
         if not spec_path.exists():
             logging.warning(
                 f"No {spec_type} spectra directory found at {spec_path}"
@@ -199,14 +199,14 @@ def analyze_source_spectra(
                 continue
 
         # Analyze and save results
-        results_df = _process_spectra(source, base_dir, instrument, method)
+        results_df = _process_spectra(source, download_path, instrument, method)
         if results_df is not None:
             gap_suffix = f"_gap{gap_threshold}" if gap_threshold else ""
             unique_name = (
                 f"{source_id}_{spec_type}_{instrument}{gap_suffix}_{method}"
             )
             output_file = (
-                base_dir / f"source_{unique_name}_results.csv"
+                download_path / f"source_{unique_name}_results.csv"
             )
             results_df.to_csv(output_file, index=None)
             logging.info(f"Results saved to: {output_file}")
@@ -250,8 +250,8 @@ def main():
     )
     args = parser.parse_args()
 
-    base_dir = Path("data")
-    log_dir = base_dir / "logs"
+    download_path = Path("data")
+    log_dir = download_path / "logs"
     setup_logging(log_dir, "fit_observations_")
 
     with open("config/sources.yaml") as f:
@@ -268,7 +268,7 @@ def main():
     for source_id, params in sources.items():
         logging.info(f"\nProcessing source: {source_id}")
         analyze_source_spectra(
-            source_id, params, args.type, base_dir,
+            source_id, params, args.type, download_path,
             gap_threshold=args.gap_threshold,
             instruments=args.instruments,
             method=args.method

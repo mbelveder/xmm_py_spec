@@ -174,7 +174,7 @@ def _process_source_dir(
 
 
 def find_grouped_spectra(
-        base_dir: str = "data/downloaded_spectra",
+        download_path: str = "data/downloaded_spectra",
         source_id: Optional[str] = None,
         method: str = "epicspeccombine"
 ) -> List[Path]:
@@ -182,7 +182,7 @@ def find_grouped_spectra(
     Find grouped spectra in both regular and clustered directories.
 
     Args:
-        base_dir: Base directory containing source directories
+        download_path: Base directory containing source directories
         source_id: Optional source ID to filter results
         method: Method used for combining spectra
         ('epicspeccombine' or 'addspec')
@@ -190,7 +190,7 @@ def find_grouped_spectra(
     Returns:
         List of paths to grouped spectrum files (.pha)
     """
-    base_path = Path(base_dir)
+    base_path = Path(download_path)
     spectra = []
     logging.info(f"Searching for grouped spectra in {base_path}")
 
@@ -198,7 +198,7 @@ def find_grouped_spectra(
         spectra.extend(_process_source_dir(src_dir, source_id, method))
 
     if not spectra:
-        logging.warning(f"No grouped spectra found in {base_dir}")
+        logging.warning(f"No grouped spectra found in {download_path}")
         logging.debug("Base directory structure:")
         for p in sorted(base_path.rglob("*")):
             rel_path = p.relative_to(base_path)
@@ -209,7 +209,7 @@ def find_grouped_spectra(
 
 
 def analyze_spectra(
-    base_dir: str = "data/clustered_spectra",  # Changed from downloaded_spectra
+    download_path: str = "data/clustered_spectra",  # Changed from downloaded_spectra
     source_id: Optional[str] = None,
     method: str = "epicspeccombine"
 ) -> None:
@@ -217,14 +217,14 @@ def analyze_spectra(
     Analyze all grouped spectra using PyXspec.
 
     Args:
-        base_dir: Base directory containing source directories
+        download_path: Base directory containing source directories
         source_id: Optional source ID to analyze
         method: Method used for combining spectra
         ('epicspeccombine' or 'addspec')
     """
     logging.info("Starting spectral analysis...")
 
-    spectra = find_grouped_spectra(base_dir, source_id, method)
+    spectra = find_grouped_spectra(download_path, source_id, method)
     if not spectra:
         logging.warning("No grouped spectra found")
         return
@@ -241,7 +241,7 @@ def main():
         description="Analyze XMM-Newton spectral files."
     )
     parser.add_argument(
-        "--base-dir",
+        "--download-path",
         default="data/clustered_spectra",  # Changed from downloaded_spectra
         help="Base directory for spectra"
     )
@@ -261,7 +261,7 @@ def main():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    analyze_spectra(args.base_dir, args.source, args.method)
+    analyze_spectra(args.download_path, args.source, args.method)
 
 
 if __name__ == "__main__":
