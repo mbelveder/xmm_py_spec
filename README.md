@@ -54,6 +54,59 @@ The package provides comprehensive logging and validation:
 - **File Validation**: Automatic validation of required spectral files
 - **Session Summary**: Final validation report at the end of each download session
 
+## Pipeline Commands
+
+### Download spectra
+
+Download PN spectra:
+```bash
+make download_PPS_PN OBS_LIST=sources.csv DOWNLOAD_PATH=data/downloaded_spectra
+```
+
+Download all instruments (PN, M1, M2):
+```bash
+make download_all_instruments OBS_LIST=sources.csv DOWNLOAD_PATH=data/downloaded_spectra
+```
+
+### Combine spectra
+
+Combine spectra using EPICSPECCOMBINE (default):
+```bash
+make combine_spectra_group_all
+```
+
+Combine spectra using ADDSPEC:
+```bash
+make combine_spectra_addspec_all
+```
+
+### Cluster and combine spectra
+
+Cluster observations by time and combine (requires SOURCE_ID):
+```bash
+make cluster_and_combine_spectra_pn SOURCE_ID=201237001010017_5359
+make cluster_and_combine_spectra_mos SOURCE_ID=201237001010017_5359
+```
+
+### Fit observations
+
+Fit individual observations:
+```bash
+make fit_observations_all
+```
+
+Fit clustered observations:
+```bash
+make fit_clustered_observations_all
+make fit_clustered_observations_pn_addspec
+```
+
+### Analyze spectra
+
+```bash
+make analyze_grouped_spectra
+```
+
 ## Package structure
 
 ```bash
@@ -61,8 +114,15 @@ xmm_py_spec/
 ├── src/
 │   ├── xmm_py_spec/
 │   │   ├── __init__.py
-│   │   ├── download_spectra.py  # Download and validation
-│   │   └── utils.py             # Common utilities
+│   │   ├── download_spectra.py           # Download and validation
+│   │   ├── combine_spectra.py            # Combine spectra from multiple observations
+│   │   ├── cluster_and_combine_spectra.py # Cluster observations and combine
+│   │   ├── fit_observations.py           # Spectral fitting
+│   │   ├── analyze_spectra.py            # Spectral analysis
+│   │   ├── file_naming.py                # File naming conventions
+│   │   ├── models.py                     # Data models
+│   │   ├── logging_config.py             # Logging configuration
+│   │   └── utils.py                      # Common utilities
 ├── tests/
 │   ├── __init__.py
 │   └── test_xmm_py_spec.py
