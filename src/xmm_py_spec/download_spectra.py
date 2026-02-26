@@ -197,8 +197,7 @@ def handle_retry(
     """Handle retry attempt logging and delay."""
     if attempt == max_retries - 1:
         raise error
-    print(f"Attempt {attempt + 1}/{max_retries} failed: {error}")
-    print(f"Retrying in {delay:.1f}s...")
+    print(f"Attempt {attempt + 1}/{max_retries} failed: {error}. Retrying in {delay:.1f}s...")
     time.sleep(delay)
 
 
@@ -265,7 +264,7 @@ def _download_pps_data(
     XMMNewton.download_data(
         obs_id,
         level=LEVEL_PPS,
-        extension="FTZ,PNG,PDF",
+        extension="FTZ,PNG,PDF,ASC",
         instname=INSTRUMENTS[instrument],
         sourceno=f'{src_num:04X}',
         filename=str(tar_file)
@@ -335,7 +334,7 @@ def download_xmm_data(
 
 def organize_files(output_dir: Path) -> None:
     """Move downloaded files to their final location."""
-    for ext in ['.FTZ', '.PNG', '.PDF']:
+    for ext in ['.FTZ', '.PNG', '.PDF', '.ASC']:
         for file in Path('.').glob(f'*{ext}'):
             target = output_dir / file.name
             if not target.exists():
@@ -406,7 +405,7 @@ def ensure_tar_file(tar_path: Path) -> Path:
 def extract_all_files(tar_file: Path, output_dir: Path) -> None:
     """Extract all files from tarfile to output directory."""
     tar_file = ensure_tar_file(tar_file)
-    target_extensions = ['.FTZ', '.PNG', '.PDF']
+    target_extensions = ['.FTZ', '.PNG', '.PDF', '.ASC']
     with tarfile.open(tar_file, 'r') as tar:
         for member in tar.getmembers():
             if any(member.name.endswith(ext) for ext in target_extensions):
@@ -525,13 +524,11 @@ def download_observation(
                         srcid, obs_id, str(src_num), download_path, status, obs_data, level
                     )
                     update_meta_log(obs_data, status, download_path, level)
-                    print(
-                        f"Skipping {obs_id}_{src_num}"
-                        " (directory exists with files)\n"
-                    )
+                    print(f"Skipping {obs_id}/{src_num} (already downloaded)")
                     return True
             success = True
             for instrument in (instruments or []):
+                print(f"Downloading {obs_id}/{src_num} [{instrument}]...")
                 try:
                     tar_file = download_xmm_data(
                         obs_id, src_num, instrument, level, output_dir
@@ -561,12 +558,10 @@ def download_observation(
                                 target.mkdir(parents=True, exist_ok=True)
                                 shutil.move(str(sub), str(target / sub.name))
                         except Exception as e:
-                            # Extraction or validation failed, remove output_dir
                             if output_dir.exists():
                                 shutil.rmtree(output_dir)
                             raise
                     tar_file.unlink(missing_ok=True)
-                    import time
                     time.sleep(1)
                     validation = validate_downloaded_files(
                         output_dir / level / instrument,
@@ -574,11 +569,16 @@ def download_observation(
                     )
                     if all(validation.values()):
                         status = f"SUCCESS ({instrument})"
+                        print(f"  Done: {obs_id}/{src_num} [{instrument}]")
                     else:
                         missing = [k for k, v in validation.items() if not v]
                         status = (
                             f"INCOMPLETE ({instrument}): "
                             f"Missing {', '.join(missing)}"
+                        )
+                        print(
+                            f"  Incomplete: {obs_id}/{src_num} [{instrument}] "
+                            f"— missing {', '.join(missing)}"
                         )
                     log_download_status(
                         srcid, obs_id, str(src_num), download_path, status,
@@ -593,7 +593,7 @@ def download_observation(
                         obs_data, level
                     )
                     update_meta_log(obs_data, status, download_path, level)
-                    print(f"Error processing {obs_id}_{src_num}: {str(e)}\n")
+                    print(f"  Error: {obs_id}/{src_num} [{instrument}]: {e}")
             return success
         else:
             # ODF or other non-PPS level
@@ -604,20 +604,19 @@ def download_observation(
                     srcid, obs_id, '', download_path, status, obs_data, level
                 )
                 update_meta_log(obs_data, status, download_path, level)
-                print(
-                    f"Skipping {obs_id} (ODF tarball exists in output directory)\n"
-                )
+                print(f"Skipping {obs_id} (ODF tarball already exists)")
                 return True
+            print(f"Downloading {obs_id} [{level}]...")
             try:
                 tar_file = download_xmm_data(
                     obs_id, level=level, output_dir=output_dir
                 )
-                # For ODF mode, just download the tar file without extraction
                 status = "SUCCESS (ODF)"
                 log_download_status(
                     srcid, obs_id, '', download_path, status, obs_data, level
                 )
                 update_meta_log(obs_data, status, download_path, level)
+                print(f"  Done: {obs_id} [{level}]\n")
                 return True
             except Exception as e:
                 status = f"ERROR (ODF): {str(e)}"
@@ -625,10 +624,10 @@ def download_observation(
                     srcid, obs_id, '', download_path, status, obs_data, level
                 )
                 update_meta_log(obs_data, status, download_path, level)
-                print(f"Error processing {obs_id}: {str(e)}\n")
+                print(f"  Error: {obs_id} [{level}]: {e}")
                 return False
     except ValidationError as e:
-        print(f"Validation failed: {e}")
+        print(f"Validation error: {e}")
         return False
 
 
