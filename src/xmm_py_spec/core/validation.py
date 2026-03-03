@@ -42,6 +42,41 @@ class SpectrumValidationError(ValidationError):
     pass
 
 
+def file_contains_html_error(path: Path, max_bytes: int = 2048) -> bool:
+    """Return True if the file content looks like an HTML error page (e.g. 404).
+
+    Used to detect when a download returned an HTTP error body that was
+    saved into a file that should contain binary or RMF data.
+
+    Args:
+        path: Path to the file to check.
+        max_bytes: Maximum number of bytes to read from the start of the file.
+
+    Returns:
+        True if the content appears to be HTML (e.g. DOCTYPE, <html>, error text).
+        False if the file cannot be read or does not look like HTML.
+    """
+    if not path.is_file():
+        return False
+    try:
+        with open(path, 'rb') as f:
+            raw = f.read(max_bytes)
+    except OSError:
+        return False
+    if not raw:
+        return False
+    try:
+        text = raw.decode('utf-8', errors='replace')
+    except Exception:
+        text = raw.decode('latin-1', errors='replace')
+    text_lower = text.lower()
+    if '<!doctype' in text_lower or '<html' in text_lower:
+        return True
+    if 'not found' in text_lower or ('error' in text_lower and '<' in text):
+        return True
+    return False
+
+
 def validate_downloaded_files(
     dir_path: Path,
     instrument: InstrumentType
@@ -68,10 +103,20 @@ def validate_downloaded_files(
         'rmf': '*.rmf'
     }
 
-    return {
-        file_type: bool(list(dir_path.glob(pattern)))
-        for file_type, pattern in required_patterns.items()
-    }
+    result = {}
+    for file_type, pattern in required_patterns.items():
+        matches = list(dir_path.glob(pattern))
+        if not matches:
+            result[file_type] = False
+            continue
+        # RMF and ARF can be HTTP-fetched; treat HTML error content as missing
+        if file_type in ('rmf', 'arf'):
+            result[file_type] = not any(
+                file_contains_html_error(p) for p in matches
+            )
+        else:
+            result[file_type] = True
+    return result
 
 
 def validate_observation_table(obs_table: List[Dict]) -> None:

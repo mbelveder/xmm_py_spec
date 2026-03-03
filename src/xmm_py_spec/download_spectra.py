@@ -60,6 +60,7 @@ from typing import Dict, List, Literal, Optional
 import shutil
 from .utils import load_source_list
 from .core.validation import (
+    file_contains_html_error,
     validate_downloaded_files,
     validate_observation_table,
     ValidationError
@@ -548,7 +549,23 @@ def download_observation(
                                 tmp_path, obs_id, instrument=instrument,
                                 cleanup=cleanup, level=level
                             )
-                            pn_dir = tmp_path / level / instrument
+                            inst_dir = tmp_path / level / instrument
+                            # Detect HTML error content in HTTP-fetched files
+                            check_patterns = ['*.rmf', f'*{instrument}*ARF*.FTZ']
+                            bad_files = []
+                            for pat in check_patterns:
+                                for p in inst_dir.glob(pat):
+                                    if file_contains_html_error(p):
+                                        bad_files.append(p)
+                            if bad_files:
+                                for p in bad_files:
+                                    p.unlink(missing_ok=True)
+                                raise RuntimeError(
+                                    "RMF or ARF file(s) contained HTML error "
+                                    "response (e.g. 404); removed. Retry "
+                                    "download later."
+                                )
+                            pn_dir = inst_dir
                             if instrument == 'PN' and not validate_pn_files(pn_dir):
                                 raise RuntimeError(
                                     f"Missing required PN files in {pn_dir}, not moving to output."

@@ -10,6 +10,7 @@ from xmm_py_spec.download_spectra import (
 )
 
 from xmm_py_spec.core.validation import (
+    file_contains_html_error,
     validate_downloaded_files,
     validate_observation_table,
     DataValidationError
@@ -64,6 +65,50 @@ def test_download_spectra_logs_append(tmp_path):
     assert log_file.exists()
     assert "old content" in log_content
     assert "456" in log_content  # New download info should be present
+
+
+def test_file_contains_html_error(tmp_path):
+    """Test HTML error detection in files."""
+    html_404 = b"""<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>404 Not Found</title>
+</head><body>
+<h1>Not Found</h1>
+<p>The requested URL was not found on this server.</p>
+</body></html>
+"""
+    good_rmf = b"SIMPLE  =                    T / file does conform to FITS standard"
+    good_text = b"# Some non-HTML comment line"
+
+    html_file = tmp_path / "error.rmf"
+    html_file.write_bytes(html_404)
+    assert file_contains_html_error(html_file) is True
+
+    binary_file = tmp_path / "real.rmf"
+    binary_file.write_bytes(good_rmf)
+    assert file_contains_html_error(binary_file) is False
+
+    text_file = tmp_path / "other.txt"
+    text_file.write_bytes(good_text)
+    assert file_contains_html_error(text_file) is False
+
+    assert file_contains_html_error(tmp_path / "nonexistent") is False
+
+
+def test_validate_downloaded_files_rmf_html_treated_as_missing(tmp_path):
+    """Test that an .rmf file containing HTML error content is treated as missing."""
+    test_dir = tmp_path / "test_spectra"
+    test_dir.mkdir()
+    (test_dir / "PNS001SRSPEC1000.FTZ").touch()
+    (test_dir / "PNS001BGSPEC1000.FTZ").touch()
+    (test_dir / "PNS001SRCARF1000.FTZ").touch()
+    (test_dir / "epn_e1_ff20_sdY9.rmf").write_text(
+        '<!DOCTYPE HTML><html><head><title>404 Not Found</title></head>'
+        '<body><p>The requested URL was not found on this server.</p></body></html>'
+    )
+    validation = validate_downloaded_files(test_dir, "PN")
+    assert validation["rmf"] is False
+    assert validation["spectrum"] is True
 
 
 def test_validate_downloaded_files(tmp_path):
