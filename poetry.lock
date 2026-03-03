@@ -78,13 +78,13 @@ test = ["hypothesis", "pytest", "pytest-remotedata"]
 
 [[package]]
 name = "astroquery"
-version = "0.4.9.post1"
+version = "0.4.11"
 description = "Functions and classes to access online astronomical data resources"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "astroquery-0.4.9.post1-py3-none-any.whl", hash = "sha256:d3e4af26bc57ce1822c1a89963f5096e89f3b8eb414341e0643cb235fee32f50"},
-    {file = "astroquery-0.4.9.post1.tar.gz", hash = "sha256:5c116bf19036d71e9321d4a049875af55349a4888e24844558fe9984b9f57197"},
+    {file = "astroquery-0.4.11-py3-none-any.whl", hash = "sha256:e34f114b285dd07a10ddb2065ebce829b01b0e740fd89dbc81a3077808e24b2d"},
+    {file = "astroquery-0.4.11.tar.gz", hash = "sha256:5537529bddc7fa07e773d5cd9baca593e3f5d93474edd1914f68e89506042b33"},
 ]
 
 [package.dependencies]
@@ -99,7 +99,7 @@ requests = ">=2.19"
 [package.extras]
 all = ["astropy-healpix", "boto3", "mocpy (>=0.12)", "regions (>=0.5)"]
 docs = ["fsspec[http]", "matplotlib", "scipy", "sphinx-astropy (>=1.5)", "sphinx-automodapi (<0.18)"]
-test = ["fsspec[http]", "matplotlib", "moto[s3]", "pytest-astropy", "pytest-dependency", "pytest-rerunfailures"]
+test = ["fsspec[http]", "matplotlib", "moto[s3]", "pytest (>=7.4)", "pytest-astropy", "pytest-dependency", "pytest-doctestplus (>=1.4)", "pytest-rerunfailures", "pytest-timeout"]
 
 [[package]]
 name = "asttokens"
