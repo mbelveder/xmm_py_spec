@@ -53,6 +53,11 @@ Logging:
 """
 
 from astroquery.esa.xmm_newton import XMMNewton
+
+# Workaround: astroquery hardcodes PN RMF versions and doesn't yet include 22.0.
+# Prepend the current version so it's tried first.
+# TODO: Remove once astroquery ships the update.
+XMMNewton._rmf_versions = ("22.0",) + XMMNewton._rmf_versions
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from datetime import datetime
