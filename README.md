@@ -16,27 +16,61 @@ Could be retrieved from a catalog, e. g. [4XMM-DR14](http://xmmssc.irap.omp.eu/C
 
 ## Result file structure
 
+### PPS (default)
+
 ```bash
 download_path/
 ├── download_meta.log      # Human-readable session log
 ├── download_meta.csv      # Machine-readable download status
-└── srcid_user_srcid/     # Source directory (user_srcid is optional)
-    ├── download.log      # Per-source download log
-    └── obs_id_src_num/   # Observation directory
-        └── PPS/          # Product directory
-            └── PN/       # Instrument directory
+└── srcid_user_srcid/      # Source directory (user_srcid is optional)
+    ├── download.log       # Per-source download log
+    └── obs_id_src_num/    # Observation directory
+        └── PPS/           # PPS product directory
+            └── PN/        # Instrument directory (PN, M1, or M2)
                 ├── *SRSPEC*.FTZ  # Source spectrum
                 ├── *BGSPEC*.FTZ  # Background spectrum
                 ├── *SRCARF*.FTZ  # ARF file
                 └── *.rmf         # RMF file
 ```
 
+### ODF
+
+```bash
+download_path/
+├── download_meta.log
+├── download_meta.csv
+└── srcid_user_srcid/
+    ├── download.log
+    └── obs_id/
+        └── ODF/
+            └── obs_id_ODF.tar.gz  # Raw observational data
+```
+
 ## Usage
 
-Basic download:
+Download PN spectra (default):
 
 ```bash
 python -m xmm_py_spec.download_spectra data/sources.csv
+```
+
+Download all instruments (PN, M1, M2):
+
+```bash
+python -m xmm_py_spec.download_spectra data/sources.csv --instruments PN M1 M2
+```
+
+Download ODF data:
+
+```bash
+python -m xmm_py_spec.download_spectra data/sources.csv --level ODF
+```
+
+Custom download path:
+
+```bash
+python -m xmm_py_spec.download_spectra data/sources.csv \
+    --download-path /data/xmm_spectra
 ```
 
 Keep source Astroquery files for debugging:
@@ -45,14 +79,26 @@ Keep source Astroquery files for debugging:
 python -m xmm_py_spec.download_spectra data/sources.csv --keep-source
 ```
 
+### CLI options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| csv_path | *(required)* | Path to CSV file with observation data |
+| --download-path | data/downloaded_spectra/ | Base directory for downloads |
+| --instruments | PN | Instruments to download: PN, M1, M2 (PPS only) |
+| --level | PPS | Data level: PPS or ODF |
+| --keep-source | False | Keep original Astroquery files for debugging |
+
 ## Logging and Validation
 
 The package provides comprehensive logging and validation:
 
 - **Meta Logging**: Global session log in both human-readable (.log) and CSV formats
 - **Per-source Logging**: Individual download logs for each source
-- **File Validation**: Automatic validation of required spectral files
+- **File Validation**: Automatic validation of required spectral files (including HTML-error detection for RMF/ARF files returned as 404 pages)
 - **Session Summary**: Final validation report at the end of each download session
+
+> **Note**: The warning `More than one file found with the instrument: PN` from Astroquery is informational — it occurs when an observation has multiple exposures for the same instrument. All exposures are processed normally.
 
 ## Pipeline Commands
 
@@ -66,6 +112,11 @@ make download_PPS_PN OBS_LIST=sources.csv DOWNLOAD_PATH=data/downloaded_spectra
 Download all instruments (PN, M1, M2):
 ```bash
 make download_all_instruments OBS_LIST=sources.csv DOWNLOAD_PATH=data/downloaded_spectra
+```
+
+Download ODF data:
+```bash
+make download_ODF OBS_LIST=sources.csv DOWNLOAD_PATH=data/downloaded_spectra
 ```
 
 ### Combine spectra
@@ -114,22 +165,24 @@ xmm_py_spec/
 ├── src/
 │   ├── xmm_py_spec/
 │   │   ├── __init__.py
-│   │   ├── download_spectra.py           # Download and validation
-│   │   ├── combine_spectra.py            # Combine spectra from multiple observations
-│   │   ├── cluster_and_combine_spectra.py # Cluster observations and combine
-│   │   ├── fit_observations.py           # Spectral fitting
-│   │   ├── analyze_spectra.py            # Spectral analysis
-│   │   ├── file_naming.py                # File naming conventions
-│   │   ├── models.py                     # Data models
-│   │   ├── logging_config.py             # Logging configuration
-│   │   └── utils.py                      # Common utilities
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   └── validation.py                  # Custom exceptions and validation
+│   │   ├── download_spectra.py                # Download and validation
+│   │   ├── combine_spectra.py                 # Combine spectra from multiple observations
+│   │   ├── cluster_and_combine_spectra.py     # Cluster observations and combine
+│   │   ├── fit_observations.py                # Spectral fitting
+│   │   ├── analyze_spectra.py                 # Spectral analysis
+│   │   ├── analyze_spectral_variability.py    # Temporal variability analysis
+│   │   ├── file_naming.py                     # File naming conventions
+│   │   ├── models.py                          # Data models
+│   │   ├── logging_config.py                  # Logging configuration
+│   │   ├── plotting_settings.py               # Matplotlib settings
+│   │   ├── source.py                          # Source utilities
+│   │   └── utils.py                           # Common utilities
 ├── tests/
 │   ├── __init__.py
 │   └── test_xmm_py_spec.py
 ├── pyproject.toml
 └── README.md
 ```
-
-## TODO
-
-Fix: `data/source_201237001015035_7170_individual_PN_gap30_epicspeccombine_results.csv`

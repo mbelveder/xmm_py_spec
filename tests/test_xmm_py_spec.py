@@ -3,7 +3,7 @@ from pathlib import Path
 from xmm_py_spec.utils import load_source_list
 from xmm_py_spec.download_spectra import (
     download_spectra,
-    clear_log_file,
+    mark_new_session,
     get_source_dir,
     reorganize_extracted_files, calculate_delay, update_meta_log,
     validate_instrument, INSTRUMENTS
@@ -45,9 +45,9 @@ def test_download_spectra_empty_table():
         download_spectra([])
 
 
-def test_clear_nonexistent_log(tmp_path):
-    """Test clearing non-existent log file."""
-    clear_log_file("456", tmp_path)  # Should not raise any error
+def test_mark_new_session_nonexistent_log(tmp_path):
+    """Test marking new session on non-existent log file."""
+    mark_new_session("456", tmp_path)  # Should not raise any error
 
 
 def test_download_spectra_logs_append(tmp_path):

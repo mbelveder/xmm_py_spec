@@ -38,11 +38,9 @@ def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
         reader = csv.DictReader(f)
 
         if not required_cols.issubset(reader.fieldnames):
-            print(set(reader.fieldnames))
             missing_required = required_cols - set(reader.fieldnames)
             raise ValueError(f"Missing required columns: {missing_required}")
         if not optional_cols.issubset(reader.fieldnames):
-            print(set(reader.fieldnames))
             missing_optional = optional_cols - set(reader.fieldnames)
             warnings.warn(
                 f"Missing optional columns: {missing_optional}, continue...",

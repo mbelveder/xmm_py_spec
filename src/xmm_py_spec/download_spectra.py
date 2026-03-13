@@ -52,36 +52,44 @@ Logging:
     - Download validation results appended to logs
 """
 
+import argparse
+import gzip
+import json
+import random
+import shutil
+import tarfile
+import time
+from datetime import datetime
+from functools import wraps
+from http.client import RemoteDisconnected
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Dict, List, Literal, Optional
+from urllib.error import URLError
+
+import pandas as pd
+from requests.exceptions import ConnectionError
+from rich.console import Console
+from rich.progress import (
+    BarColumn, MofNCompleteColumn, Progress,
+    SpinnerColumn, TextColumn, TimeElapsedColumn,
+)
+from rich.table import Table
+
 from astroquery.esa.xmm_newton import XMMNewton
 
 # Workaround: astroquery hardcodes PN RMF versions and doesn't yet include 22.0.
 # Prepend the current version so it's tried first.
 # TODO: Remove once astroquery ships the update.
 XMMNewton._rmf_versions = ("22.0",) + XMMNewton._rmf_versions
-from tempfile import TemporaryDirectory
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Literal, Optional
-import shutil
-from .utils import load_source_list
-from .core.validation import (
+
+from .core.validation import (  # noqa: E402
     file_contains_html_error,
     validate_downloaded_files,
     validate_observation_table,
     ValidationError
 )
-import argparse
-
-from functools import wraps
-import time
-from urllib.error import URLError
-from http.client import RemoteDisconnected
-from requests.exceptions import ConnectionError
-import random
-import tarfile
-import json
-import pandas as pd
-import gzip
+from .utils import load_source_list  # noqa: E402
 
 LEVEL_PPS = "PPS"
 LEVEL_ODF = "ODF"
@@ -104,6 +112,8 @@ NETWORK_ERRORS = (
     ConnectionError
 )
 
+console = Console()
+
 
 def validate_instrument(instrument: str) -> InstrumentType:
     """Validate and normalize instrument name."""
@@ -120,7 +130,7 @@ def get_source_dir(
     srcid: str,
     obs_data: Optional[Dict]
 ) -> Path:
-    """Return download_path/srcid_userid or download_path/srcid if no user_srcid."""
+    """Return srcid_userid or srcid subdirectory under download_path."""
     user_srcid = obs_data.get('user_srcid') if obs_data else None
     if user_srcid:
         return Path(download_path) / f"{srcid}_{user_srcid}"
@@ -141,30 +151,35 @@ def log_download_status(
     log_dir = get_source_dir(download_path, srcid, obs_data)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "download.log"
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    time_str = datetime.now().strftime('%H:%M:%S')
     if level == LEVEL_ODF:
-        message = f"[{timestamp}] obs_id {obs_id}: {status}\n"
+        message = f"[{time_str}]  {obs_id:<12}  {status}\n"
     else:
-        message = (
-            f"[{timestamp}] obs_id {obs_id} src_num {src_num}: {status}\n"
-        )
+        message = f"[{time_str}]  {obs_id:<12}  {src_num:<5}  {status}\n"
     with open(log_file, 'a') as f:
         f.write(message)
 
 
-def clear_log_file(
+def mark_new_session(
     srcid: str,
     download_path: str,
     obs_data: Optional[Dict] = None,
     level: str = LEVEL
 ) -> None:
-    """Clear existing log file for a new download session."""
+    """Append a session header to the source download log."""
     obs_data = obs_data or {}
     log_dir = get_source_dir(download_path, srcid, obs_data)
+    log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "download.log"
-    if log_file.exists():
-        with open(log_file, 'a') as f:
-            f.write("\n" + "=" * 80 + "\n\n")
+    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    sep = "=" * 80
+    prefix = (
+        "\n"
+        if log_file.exists() and log_file.stat().st_size > 0
+        else ""
+    )
+    with open(log_file, 'a') as f:
+        f.write(f"{prefix}{sep}\nSession: {ts}\n{sep}\n\n")
 
 
 def prepare_download(
@@ -177,16 +192,16 @@ def prepare_download(
 ) -> tuple[Path, str]:
     """Prepare download paths and normalize observation ID.
 
-    For PPS: download_path/source_id_[user_id]/PPS/obs_id_src_num
-    For ODF: download_path/source_id_[user_id]/ODF/obs_id
+    For PPS: download_path/source_id_[user_id]/obs_id_src_num/PPS/
+    For ODF: download_path/source_id_[user_id]/obs_id/ODF/
     """
     if len(obs_id) < 10:
         obs_id = f'{int(obs_id):010d}'
     source_dir = get_source_dir(download_path, srcid, obs_data or {})
     if level == LEVEL_ODF:
-        output_dir = source_dir / "ODF" / obs_id
+        output_dir = source_dir / obs_id
     else:
-        output_dir = source_dir / "PPS" / f"{obs_id}_{src_num}"
+        output_dir = source_dir / f"{obs_id}_{src_num}"
     return output_dir, obs_id
 
 
@@ -203,7 +218,10 @@ def handle_retry(
     """Handle retry attempt logging and delay."""
     if attempt == max_retries - 1:
         raise error
-    print(f"Attempt {attempt + 1}/{max_retries} failed: {error}. Retrying in {delay:.1f}s...")
+    console.print(
+        f"[yellow]⚠ Attempt {attempt + 1}/{max_retries} failed:[/yellow] "
+        f"{error}. Retrying in {delay:.1f}s..."
+    )
     time.sleep(delay)
 
 
@@ -225,25 +243,18 @@ def retry_on_network_error(max_retries=3, initial_delay=1):
 def _download_odf_data(obs_id: str, output_dir: Path) -> Path:
     """Download ODF data directly to output directory by changing CWD."""
     import os
-    
-    # Save current working directory
+    output_dir = output_dir.resolve()
     orig_cwd = os.getcwd()
     try:
-        # Create output directory and change to it
         output_dir.mkdir(parents=True, exist_ok=True)
         os.chdir(output_dir)
-        
-        # Download directly to output directory (now CWD)
         tar_file = Path(f'{obs_id}_{LEVEL_ODF}.tar')
         XMMNewton.download_data(
             obs_id,
             level=LEVEL_ODF,
             filename=tar_file.name
         )
-        
-        # Check for both .tar and .tar.gz files
         tar_gz_file = tar_file.with_suffix('.tar.gz')
-        
         if tar_file.exists():
             return output_dir / tar_file.name
         elif tar_gz_file.exists():
@@ -265,33 +276,39 @@ def _download_pps_data(
     instrument: InstrumentType,
     output_dir: Path
 ) -> Path:
-    """Download PPS data to current directory (existing behavior)."""
-    tar_file = Path(f'{obs_id}_{instrument}_{LEVEL_PPS}.tar')
-    XMMNewton.download_data(
-        obs_id,
-        level=LEVEL_PPS,
-        extension="FTZ,PNG,PDF,ASC",
-        instname=INSTRUMENTS[instrument],
-        sourceno=f'{src_num:04X}',
-        filename=str(tar_file)
-    )
-    tar_gz_file = tar_file.with_suffix('.tar.gz')
-    
-    # Only move to output_dir if all files exist
-    if tar_file.exists():
-        output_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(tar_file), str(output_dir / tar_file.name))
-        return output_dir / tar_file.name
-    elif tar_gz_file.exists():
-        output_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(tar_gz_file), str(output_dir / tar_gz_file.name))
-        return output_dir / tar_gz_file.name
-    else:
-        raise FileNotFoundError(
-            f"Neither {tar_file} nor {tar_gz_file} was found after "
-            f"download. Check if the download succeeded and the output "
-            f"path is correct."
-        )
+    """Download PPS data to a temporary directory, then move to output_dir."""
+    import os
+    output_dir = output_dir.resolve()
+    orig_cwd = os.getcwd()
+    with TemporaryDirectory() as tmpdir:
+        try:
+            os.chdir(tmpdir)
+            tar_name = f'{obs_id}_{instrument}_{LEVEL_PPS}.tar'
+            XMMNewton.download_data(
+                obs_id,
+                level=LEVEL_PPS,
+                extension="FTZ,PNG,PDF,ASC",
+                instname=INSTRUMENTS[instrument],
+                sourceno=f'{src_num:04X}',
+                filename=tar_name
+            )
+            tar_file = Path(tmpdir) / tar_name
+            tar_gz_file = tar_file.with_suffix('.tar.gz')
+            if tar_file.exists():
+                actual = tar_file
+            elif tar_gz_file.exists():
+                actual = tar_gz_file
+            else:
+                raise FileNotFoundError(
+                    f"Neither {tar_name} nor {tar_name[:-4]}.tar.gz was "
+                    f"found after download. Check if the download succeeded."
+                )
+            output_dir.mkdir(parents=True, exist_ok=True)
+            dest = output_dir / actual.name
+            shutil.move(str(actual), str(dest))
+            return dest
+        finally:
+            os.chdir(orig_cwd)
 
 
 @retry_on_network_error()
@@ -324,27 +341,12 @@ def download_xmm_data(
     """
     if output_dir is None:
         output_dir = Path('.')
-    
     if level == LEVEL_ODF:
         return _download_odf_data(obs_id, output_dir)
     else:
-        # PPS mode: existing behavior (download to current directory)
         if instrument is None:
             raise ValueError("Instrument must not be None for PPS level.")
-        try:
-            return _download_pps_data(obs_id, src_num, instrument, output_dir)
-        except Exception:
-            # Do not move or organize files or create output_dir if any error occurs
-            raise
-
-
-def organize_files(output_dir: Path) -> None:
-    """Move downloaded files to their final location."""
-    for ext in ['.FTZ', '.PNG', '.PDF', '.ASC']:
-        for file in Path('.').glob(f'*{ext}'):
-            target = output_dir / file.name
-            if not target.exists():
-                shutil.move(str(file), str(target))
+        return _download_pps_data(obs_id, src_num, instrument, output_dir)
 
 
 def reorganize_extracted_files(
@@ -443,8 +445,8 @@ def update_meta_log(
         if csv_path.exists():
             df = pd.read_csv(csv_path)
             mask = (
-                (df['srcid'] == log_entry['srcid']) &
-                (df['obs_id'] == log_entry['obs_id'])
+                (df['srcid'] == log_entry['srcid'])
+                & (df['obs_id'] == log_entry['obs_id'])
             )
             if level != LEVEL_ODF:
                 mask = mask & (df['src_num'] == log_entry['src_num'])
@@ -459,42 +461,260 @@ def update_meta_log(
         else:
             df = pd.DataFrame([log_entry])
         df.to_csv(csv_path, index=False)
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        time_str = datetime.now().strftime('%H:%M:%S')
+        uid = log_entry['user_srcid']
+        source_label = (
+            f"{log_entry['srcid']}_{uid}" if uid else log_entry['srcid']
+        )
         if level == LEVEL_ODF:
             human_msg = (
-                f"[{timestamp}] "
-                f"Source: {log_entry['srcid']} "
-                f"(User ID: {log_entry['user_srcid']}) "
-                f"ObsID: {log_entry['obs_id']} "
-                f"Status: {status}\n"
+                f"[{time_str}]  {source_label:<28}  "
+                f"{log_entry['obs_id']:<12}  {status}\n"
             )
         else:
             human_msg = (
-                f"[{timestamp}] "
-                f"Source: {log_entry['srcid']} "
-                f"(User ID: {log_entry['user_srcid']}) "
-                f"ObsID: {log_entry['obs_id']} "
-                f"SrcNum: {log_entry['src_num']} "
-                f"Status: {status}\n"
+                f"[{time_str}]  {source_label:<28}  "
+                f"{log_entry['obs_id']:<12}  {log_entry['src_num']:<5}  "
+                f"{status}\n"
             )
         with open(human_log_path, 'a') as f:
             f.write(human_msg)
     except Exception as e:
-        print(f"Warning: Failed to update meta logs: {e}")
+        console.print(
+            f"[yellow]Warning: Failed to update meta logs:[/yellow] {e}"
+        )
 
 
-def validate_pn_files(output_dir: Path) -> bool:
-    """Check if all required PN files are present in the output directory."""
-    required_patterns = [
-        '*SRSPEC*.FTZ',
-        '*BGSPEC*.FTZ',
-        '*SRCARF*.FTZ',
-        '*.rmf',
+DOWNLOAD_THROTTLE_SECONDS = 1
+
+
+def _log_and_update(
+    srcid: str,
+    obs_id: str,
+    src_num: str,
+    download_path: str,
+    status: str,
+    obs_data: Optional[Dict],
+    level: str
+) -> None:
+    """Log status to per-source log and update meta CSV/log."""
+    log_download_status(
+        srcid, obs_id, src_num, download_path, status, obs_data, level
+    )
+    update_meta_log(obs_data, status, download_path, level)
+
+
+def _extract_and_stage(
+    tar_file: Path,
+    tmp_path: Path,
+    obs_id: str,
+    src_num: int,
+    instrument: InstrumentType,
+    cleanup: bool,
+    level: str
+) -> Path:
+    """Extract tar, reorganize files, validate. Returns staged inst_dir."""
+    XMMNewton.get_epic_spectra(
+        tar_file,
+        source_number=src_num,
+        verbose=False,
+        path=str(tmp_path),
+        instrument=[INSTRUMENTS[instrument]]
+    )
+    extract_all_files(tar_file, tmp_path)
+    reorganize_extracted_files(
+        tmp_path, obs_id, instrument=instrument,
+        cleanup=cleanup, level=level
+    )
+    inst_dir = tmp_path / level / instrument
+    # Detect HTML error content in RMF/ARF files
+    bad_files = [
+        p for pat in ['*.rmf', f'*{instrument}*ARF*.FTZ']
+        for p in inst_dir.glob(pat)
+        if file_contains_html_error(p)
     ]
-    for pattern in required_patterns:
-        if not list(output_dir.glob(pattern)):
-            return False
-    return True
+    if bad_files:
+        for p in bad_files:
+            p.unlink(missing_ok=True)
+        raise RuntimeError(
+            "RMF or ARF file(s) contained HTML error response "
+            "(e.g. 404); removed. Retry download later."
+        )
+    pre_check = validate_downloaded_files(
+        inst_dir, instrument=instrument
+    ) if inst_dir.exists() else {}
+    if pre_check and not all(pre_check.values()):
+        missing = [k for k, v in pre_check.items() if not v]
+        raise RuntimeError(
+            f"Missing required {instrument} files in {inst_dir}: "
+            f"{', '.join(missing)}"
+        )
+    return inst_dir
+
+
+def _move_staged_files(
+    inst_dir: Path,
+    output_dir: Path,
+    level: str,
+    instrument: InstrumentType
+) -> None:
+    """Move staged files from temp dir to final output location."""
+    target = output_dir / level / instrument
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        for sub in inst_dir.iterdir():
+            shutil.move(str(sub), str(target / sub.name))
+    except Exception:
+        if target.exists():
+            shutil.rmtree(target)
+        raise
+
+
+def _build_status(
+    validation: Dict[str, bool],
+    instrument: InstrumentType,
+    obs_id: str,
+    src_num: int
+) -> str:
+    """Return a status string and print progress for a completed download."""
+    if all(validation.values()):
+        console.print(
+            f"  [green]✓[/green] {obs_id}/{src_num} [{instrument}]"
+        )
+        return f"SUCCESS ({instrument})"
+    missing = [k for k, v in validation.items() if not v]
+    console.print(
+        f"  [yellow]⚠[/yellow] Incomplete: {obs_id}/{src_num} [{instrument}]"
+        f" — missing {', '.join(missing)}"
+    )
+    return f"INCOMPLETE ({instrument}): Missing {', '.join(missing)}"
+
+
+def _download_pps_observation(
+    srcid: str,
+    obs_id: str,
+    src_num: int,
+    download_path: str,
+    output_dir: Path,
+    obs_data: Optional[Dict],
+    instruments: List[InstrumentType],
+    cleanup: bool,
+    level: str,
+    _progress=None,
+    _task_id=None,
+) -> List[str]:
+    """Handle PPS download for all requested instruments.
+
+    Returns a list of status strings, one per instrument.
+    """
+    def _desc(phase: str) -> None:
+        if _progress is not None and _task_id is not None:
+            _progress.update(
+                _task_id,
+                description=(
+                    f"[cyan]{obs_id}/{src_num} [{instrument}] {phase}[/cyan]"
+                )
+            )
+
+    if output_dir.exists():
+        all_empty = all(
+            is_directory_empty(output_dir / level / inst)
+            for inst in instruments
+            if (output_dir / level / inst).exists()
+        )
+        if not all_empty:
+            _log_and_update(
+                srcid, obs_id, str(src_num), download_path,
+                "SKIPPED_EXISTS", obs_data, level
+            )
+            console.print(
+                f"  [yellow]→[/yellow] Skipping {obs_id}/{src_num}"
+                " (already downloaded)"
+            )
+            return ["SKIPPED_EXISTS"] * len(instruments)
+    statuses = []
+    for instrument in instruments:
+        try:
+            _desc("downloading")
+            tar_file = download_xmm_data(
+                obs_id, src_num, instrument, level, output_dir
+            )
+            _desc("extracting")
+            with TemporaryDirectory() as tmpdir:
+                inst_dir = _extract_and_stage(
+                    tar_file, Path(tmpdir), obs_id, src_num,
+                    instrument, cleanup, level
+                )
+                _move_staged_files(inst_dir, output_dir, level, instrument)
+            tar_file.unlink(missing_ok=True)
+            time.sleep(DOWNLOAD_THROTTLE_SECONDS)
+            validation = validate_downloaded_files(
+                output_dir / level / instrument, instrument=instrument
+            )
+            status = _build_status(validation, instrument, obs_id, src_num)
+            _log_and_update(
+                srcid, obs_id, str(src_num), download_path,
+                status, obs_data, level
+            )
+        except Exception as e:
+            status = f"ERROR ({instrument}): {str(e)}"
+            _log_and_update(
+                srcid, obs_id, str(src_num), download_path,
+                status, obs_data, level
+            )
+            console.print(
+                f"  [red]✗[/red] {obs_id}/{src_num} [{instrument}]: {e}"
+            )
+        statuses.append(status)
+    return statuses
+
+
+def _download_odf_observation(
+    srcid: str,
+    obs_id: str,
+    download_path: str,
+    output_dir: Path,
+    obs_data: Optional[Dict],
+    level: str,
+    _progress=None,
+    _task_id=None,
+) -> str:
+    """Handle ODF download for a single observation.
+
+    Returns a status string.
+    """
+    odf_dir = output_dir / level
+    tar_file = odf_dir / f'{obs_id}_{level}.tar.gz'
+    if tar_file.exists():
+        _log_and_update(
+            srcid, obs_id, '', download_path,
+            "SKIPPED_EXISTS", obs_data, level
+        )
+        console.print(
+            f"  [yellow]→[/yellow] Skipping {obs_id}"
+            " (ODF tarball already exists)"
+        )
+        return "SKIPPED_EXISTS"
+    if _progress is not None and _task_id is not None:
+        _progress.update(
+            _task_id,
+            description=f"[cyan]{obs_id} [{level}] downloading[/cyan]"
+        )
+    try:
+        download_xmm_data(obs_id, level=level, output_dir=odf_dir)
+        _log_and_update(
+            srcid, obs_id, '', download_path,
+            "SUCCESS (ODF)", obs_data, level
+        )
+        console.print(f"  [green]✓[/green] {obs_id} [{level}]")
+        return "SUCCESS (ODF)"
+    except Exception as e:
+        status = f"ERROR (ODF): {str(e)}"
+        _log_and_update(
+            srcid, obs_id, '', download_path, status, obs_data, level
+        )
+        console.print(f"  [red]✗[/red] {obs_id} [{level}]: {e}")
+        return status
 
 
 def download_observation(
@@ -505,11 +725,14 @@ def download_observation(
     obs_data: Optional[Dict] = None,
     instruments: Optional[List[InstrumentType]] = None,
     cleanup: bool = True,
-    level: str = LEVEL
-) -> bool:
-    """Download and organize data for a single XMM-Newton observation."""
-    if level == LEVEL_PPS:
-        instruments = instruments or [DEFAULT_INSTRUMENT]
+    level: str = LEVEL,
+    _progress=None,
+    _task_id=None,
+) -> List[str]:
+    """Download and organize data for a single XMM-Newton observation.
+
+    Returns a list of status strings (one per instrument for PPS, one for ODF).
+    """
     output_dir, obs_id = prepare_download(
         srcid, obs_id, src_num, download_path, obs_data, level
     )
@@ -518,139 +741,47 @@ def download_observation(
             {'srcid': srcid, 'obs_id': obs_id, 'src_num': src_num}
         ])
         if level == LEVEL_PPS:
-            if output_dir.exists():
-                all_empty = all(
-                    is_directory_empty(output_dir / level / inst)
-                    for inst in (instruments or [])
-                    if (output_dir / level / inst).exists()
-                )
-                if not all_empty:
-                    status = "SKIPPED_EXISTS"
-                    log_download_status(
-                        srcid, obs_id, str(src_num), download_path, status, obs_data, level
-                    )
-                    update_meta_log(obs_data, status, download_path, level)
-                    print(f"Skipping {obs_id}/{src_num} (already downloaded)")
-                    return True
-            success = True
-            for instrument in (instruments or []):
-                print(f"Downloading {obs_id}/{src_num} [{instrument}]...")
-                try:
-                    tar_file = download_xmm_data(
-                        obs_id, src_num, instrument, level, output_dir
-                    )
-                    with TemporaryDirectory() as tmpdir:
-                        tmp_path = Path(tmpdir)
-                        try:
-                            XMMNewton.get_epic_spectra(
-                                tar_file,
-                                source_number=src_num,
-                                verbose=False,
-                                path=str(tmp_path),
-                                instrument=[INSTRUMENTS[instrument]]
-                            )
-                            extract_all_files(tar_file, tmp_path)
-                            reorganize_extracted_files(
-                                tmp_path, obs_id, instrument=instrument,
-                                cleanup=cleanup, level=level
-                            )
-                            inst_dir = tmp_path / level / instrument
-                            # Detect HTML error content in HTTP-fetched files
-                            check_patterns = ['*.rmf', f'*{instrument}*ARF*.FTZ']
-                            bad_files = []
-                            for pat in check_patterns:
-                                for p in inst_dir.glob(pat):
-                                    if file_contains_html_error(p):
-                                        bad_files.append(p)
-                            if bad_files:
-                                for p in bad_files:
-                                    p.unlink(missing_ok=True)
-                                raise RuntimeError(
-                                    "RMF or ARF file(s) contained HTML error "
-                                    "response (e.g. 404); removed. Retry "
-                                    "download later."
-                                )
-                            pn_dir = inst_dir
-                            if instrument == 'PN' and not validate_pn_files(pn_dir):
-                                raise RuntimeError(
-                                    f"Missing required PN files in {pn_dir}, not moving to output."
-                                )
-                            for sub in (pn_dir.iterdir() if pn_dir.exists() else []):
-                                target = output_dir / level / instrument
-                                target.mkdir(parents=True, exist_ok=True)
-                                shutil.move(str(sub), str(target / sub.name))
-                        except Exception as e:
-                            if output_dir.exists():
-                                shutil.rmtree(output_dir)
-                            raise
-                    tar_file.unlink(missing_ok=True)
-                    time.sleep(1)
-                    validation = validate_downloaded_files(
-                        output_dir / level / instrument,
-                        instrument=instrument
-                    )
-                    if all(validation.values()):
-                        status = f"SUCCESS ({instrument})"
-                        print(f"  Done: {obs_id}/{src_num} [{instrument}]")
-                    else:
-                        missing = [k for k, v in validation.items() if not v]
-                        status = (
-                            f"INCOMPLETE ({instrument}): "
-                            f"Missing {', '.join(missing)}"
-                        )
-                        print(
-                            f"  Incomplete: {obs_id}/{src_num} [{instrument}] "
-                            f"— missing {', '.join(missing)}"
-                        )
-                    log_download_status(
-                        srcid, obs_id, str(src_num), download_path, status,
-                        obs_data, level
-                    )
-                    update_meta_log(obs_data, status, download_path, level)
-                except Exception as e:
-                    success = False
-                    status = f"ERROR ({instrument}): {str(e)}"
-                    log_download_status(
-                        srcid, obs_id, str(src_num), download_path, status,
-                        obs_data, level
-                    )
-                    update_meta_log(obs_data, status, download_path, level)
-                    print(f"  Error: {obs_id}/{src_num} [{instrument}]: {e}")
-            return success
-        else:
-            # ODF or other non-PPS level
-            tar_file = output_dir / f'{obs_id}_{level}.tar.gz'
-            if tar_file.exists():
-                status = "SKIPPED_EXISTS"
-                log_download_status(
-                    srcid, obs_id, '', download_path, status, obs_data, level
-                )
-                update_meta_log(obs_data, status, download_path, level)
-                print(f"Skipping {obs_id} (ODF tarball already exists)")
-                return True
-            print(f"Downloading {obs_id} [{level}]...")
-            try:
-                tar_file = download_xmm_data(
-                    obs_id, level=level, output_dir=output_dir
-                )
-                status = "SUCCESS (ODF)"
-                log_download_status(
-                    srcid, obs_id, '', download_path, status, obs_data, level
-                )
-                update_meta_log(obs_data, status, download_path, level)
-                print(f"  Done: {obs_id} [{level}]\n")
-                return True
-            except Exception as e:
-                status = f"ERROR (ODF): {str(e)}"
-                log_download_status(
-                    srcid, obs_id, '', download_path, status, obs_data, level
-                )
-                update_meta_log(obs_data, status, download_path, level)
-                print(f"  Error: {obs_id} [{level}]: {e}")
-                return False
+            return _download_pps_observation(
+                srcid, obs_id, src_num, download_path, output_dir,
+                obs_data, instruments or [DEFAULT_INSTRUMENT],
+                cleanup, level, _progress, _task_id,
+            )
+        return [_download_odf_observation(
+            srcid, obs_id, download_path, output_dir, obs_data, level,
+            _progress, _task_id,
+        )]
     except ValidationError as e:
-        print(f"Validation error: {e}")
-        return False
+        console.print(f"[red]Validation error:[/red] {e}")
+        return [f"ERROR: {e}"]
+
+
+def _print_session_summary(all_statuses: List[str]) -> None:
+    """Print a summary table of download results to the console."""
+    counts = {
+        'Success': sum(
+            1 for s in all_statuses if s.startswith('SUCCESS')
+        ),
+        'Skipped': sum(
+            1 for s in all_statuses if s.startswith('SKIPPED')
+        ),
+        'Incomplete': sum(
+            1 for s in all_statuses if s.startswith('INCOMPLETE')
+        ),
+        'Error': sum(
+            1 for s in all_statuses if s.startswith('ERROR')
+        ),
+    }
+    styles = {
+        'Success': 'green', 'Skipped': 'yellow',
+        'Incomplete': 'yellow', 'Error': 'red',
+    }
+    table = Table(title="[bold]Download Session Summary[/bold]")
+    table.add_column("Status", style="bold")
+    table.add_column("Count", justify="right")
+    for label, count in counts.items():
+        color = styles[label]
+        table.add_row(f"[{color}]{label}[/{color}]", str(count))
+    console.print(table)
 
 
 def process_downloads(
@@ -659,19 +790,41 @@ def process_downloads(
     instruments: Optional[List[InstrumentType]],
     cleanup: bool = True,
     level: str = LEVEL
-) -> None:
-    """Process all downloads from the observation table."""
-    for obs in obs_table:
-        download_observation(
-            obs['srcid'],
-            obs['obs_id'],
-            int(obs['src_num']),
-            download_path,
-            obs,
-            instruments=instruments,
-            cleanup=cleanup,
-            level=level
+) -> List[str]:
+    """Process all downloads from the observation table.
+
+    Returns a list of all status strings collected during the session.
+    """
+    all_statuses: List[str] = []
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            f"[cyan]Downloading {level}[/cyan]", total=len(obs_table)
         )
+        for obs in obs_table:
+            statuses = download_observation(
+                obs['srcid'],
+                obs['obs_id'],
+                int(obs['src_num']),
+                download_path,
+                obs,
+                instruments=instruments,
+                cleanup=cleanup,
+                level=level,
+                _progress=progress,
+                _task_id=task,
+            )
+            all_statuses.extend(statuses)
+            progress.advance(task)
+        progress.update(task, description="[green]Done[/green]")
+    _print_session_summary(all_statuses)
+    return all_statuses
 
 
 def find_incomplete_downloads(base_path: Path) -> List[str]:
@@ -690,26 +843,51 @@ def find_incomplete_downloads(base_path: Path) -> List[str]:
     return incomplete
 
 
-def log_validation_results(log_path: Path, incomplete_dirs: List[str]) -> None:
-    """Log validation results to file."""
+def log_validation_results(
+    log_path: Path,
+    incomplete_dirs: List[str],
+    session_statuses: Optional[List[str]] = None
+) -> None:
+    """Log session summary and final validation results to file."""
     with open(log_path, 'a') as f:
-        f.write("\nFinal validation of downloaded files:\n")
-        f.write("-" * 40 + "\n")
+        f.write("\n" + "-" * 80 + "\n")
+        if session_statuses is not None:
+            success = sum(
+                1 for s in session_statuses if s.startswith('SUCCESS')
+            )
+            skipped = sum(
+                1 for s in session_statuses if s.startswith('SKIPPED')
+            )
+            incomplete = sum(
+                1 for s in session_statuses if s.startswith('INCOMPLETE')
+            )
+            error = sum(
+                1 for s in session_statuses if s.startswith('ERROR')
+            )
+            f.write(
+                f"Session summary:  SUCCESS={success}  SKIPPED={skipped}"
+                f"  INCOMPLETE={incomplete}  ERROR={error}\n"
+            )
+        f.write("\nFinal validation:\n")
         if incomplete_dirs:
-            f.write("Incomplete downloads found for the following observations:\n")
+            f.write("  Incomplete downloads:\n")
             for dir_info in incomplete_dirs:
-                f.write(f"- {dir_info}\n")
+                f.write(f"  - {dir_info}\n")
         else:
-            f.write("All downloads complete and validated successfully\n")
-        f.write("\nDownload session completed.\n")
+            f.write("  All downloads complete and validated successfully\n")
         f.write("=" * 80 + "\n")
 
 
-def validate_all_downloads(download_path: str) -> None:
+def validate_all_downloads(
+    download_path: str,
+    session_statuses: Optional[List[str]] = None
+) -> None:
     """Double check all downloaded files after session completion."""
     base_path = Path(download_path)
     incomplete = find_incomplete_downloads(base_path)
-    log_validation_results(base_path / "download_meta.log", incomplete)
+    log_validation_results(
+        base_path / "download_meta.log", incomplete, session_statuses
+    )
 
 
 def download_spectra(
@@ -726,26 +904,35 @@ def download_spectra(
     Path(download_path).mkdir(parents=True, exist_ok=True)
     validate_observation_table(obs_table)
     human_log_path = Path(download_path) / "download_meta.log"
+    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    n_sources = len({
+        (obs['srcid'], obs.get('user_srcid')) for obs in obs_table
+    })
+    sep = "=" * 80
     with open(human_log_path, 'a') as f:
-        f.write(f"\n{'=' * 80}\n")
-        f.write(f"Starting new download session at {datetime.now()}\n\n")
-    csv_path = Path(download_path) / "download_meta.csv"
-    if csv_path.exists():
-        csv_path.unlink()
+        f.write(f"\n{sep}\n")
+        f.write(f"Download Session: {ts}\n")
+        f.write(
+            f"Level: {level}   Sources: {n_sources}"
+            f"   Observations: {len(obs_table)}"
+        )
+        if instruments:
+            f.write(f"   Instruments: {', '.join(instruments)}")
+        f.write(f"\n{sep}\n\n")
     seen_sources = set()
     for obs in obs_table:
         source_key = (obs['srcid'], obs.get('user_srcid'))
         if source_key not in seen_sources:
             seen_sources.add(source_key)
-            clear_log_file(obs['srcid'], download_path, obs, level)
+            mark_new_session(obs['srcid'], download_path, obs, level)
     try:
-        process_downloads(
+        all_statuses = process_downloads(
             obs_table, download_path, instruments=instruments,
             cleanup=cleanup, level=level
         )
-        validate_all_downloads(download_path)  # Add final validation
+        validate_all_downloads(download_path, session_statuses=all_statuses)
     except Exception as e:
-        print(f"Download failed: {str(e)}")
+        console.print(f"[red]Download failed:[/red] {e}")
         raise
 
 
@@ -784,7 +971,10 @@ def main():
     args = parser.parse_args()
     try:
         obs_table = load_source_list(args.csv_path)
-        print("\nStarting XMM download using astroquery...\n")
+        console.print(
+            "\n[bold cyan]Starting XMM download using astroquery..."
+            "[/bold cyan]\n"
+        )
         # Only use instruments for PPS
         if args.level == LEVEL_PPS:
             instruments = args.instruments
@@ -798,7 +988,7 @@ def main():
             level=args.level
         )
     except Exception as e:
-        print(f"Download failed: {e}")
+        console.print(f"[red]Download failed:[/red] {e}")
         raise
 
 
