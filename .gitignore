@@ -30,7 +30,7 @@ config/
 
 # Other
 *.log
-notebooks/
+# notebooks/a
 sas_docker_setup.md
 .github/copilot-instructions.md
 src/xmm_py_spec/file_naming.py
