@@ -1,6 +1,6 @@
 # A Python package to handle XMM-Newton spectra
 
-Downloads and organizes [XMM-Newton PPS products](https://xmm-tools.cosmos.esa.int/external/xmm_user_support/documentation/dfhb/pps.html) data using [Astroquery](https://astroquery.readthedocs.io/en/latest/). Complements Astroquery behaviour by adding observational metadata: source and background regions (both ASC and PNG files), count rate curves used to extract GTI (good time intervals).
+Downloads and organizes [XMM-Newton PPS products](https://xmm-tools.cosmos.esa.int/external/xmm_user_support/documentation/dfhb/pps.html) data using [Astroquery](https://astroquery.readthedocs.io/en/latest/). Complements Astroquery behaviour by adding complementary PPS metadata: source and background regions (both ASC and PNG files), count rate curves used to extract GTI (good time intervals).
 
 Optimized for the multiple spectra downloading.
 

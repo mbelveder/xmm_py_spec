@@ -22,7 +22,7 @@ rc = {
     # grid
     "axes.grid": True,
     "axes.grid.which": "major",
-    "grid.linestyle": "--",
+    "grid.linestyle": "-",
     "grid.linewidth": 0.75,
     "grid.alpha": 0.75,
 
