@@ -6,9 +6,16 @@
 #   DOWNLOAD_PATH - destination directory for downloaded products
 #   SOURCE_ID     - srcid_user_srcid for per-source targets
 #
+# Optional:
+#   RMF_OPTIONAL=1 - keep spectra/ARF even if the RMF response host fails
+#
 # Example:
 #   make download_PPS_PN OBS_LIST=sources.csv DOWNLOAD_PATH=data/spectra
+#   make download_all_instruments OBS_LIST=sources.csv DOWNLOAD_PATH=data/spectra RMF_OPTIONAL=1
 # ============================================================
+
+# Expands to --rmf-optional when RMF_OPTIONAL is set (to any non-empty value)
+RMF_OPTIONAL_FLAG := $(if $(RMF_OPTIONAL),--rmf-optional,)
 
 # ---- Setup --------------------------------------------------
 
@@ -18,11 +25,11 @@ install:
 # ---- Download -----------------------------------------------
 # Download PPS spectral products for PN only (default instrument)
 download_PPS_PN:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH)
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH) $(RMF_OPTIONAL_FLAG)
 
 # Download PPS spectral products for all three EPIC instruments (PN, MOS1, MOS2)
 download_all_instruments:
-		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH) --instruments PN M1 M2
+		poetry run python -m xmm_py_spec.download_spectra data/spectra_to_download/$(OBS_LIST) --download-path $(DOWNLOAD_PATH) --instruments PN M1 M2 $(RMF_OPTIONAL_FLAG)
 
 # Download raw Observation Data Files (ODF tarballs, no extraction)
 download_ODF:

@@ -87,6 +87,7 @@ from .core.validation import (  # noqa: E402
     file_contains_html_error,
     validate_downloaded_files,
     validate_observation_table,
+    validate_source_position,
     ValidationError
 )
 from .utils import load_source_list  # noqa: E402
@@ -504,44 +505,45 @@ def _log_and_update(
     update_meta_log(obs_data, status, download_path, level)
 
 
-def _extract_and_stage(
-    tar_file: Path,
-    tmp_path: Path,
-    obs_id: str,
-    src_num: int,
+def _reject_html_error_files(
+    inst_dir: Path,
     instrument: InstrumentType,
-    cleanup: bool,
-    level: str
-) -> Path:
-    """Extract tar, reorganize files, validate. Returns staged inst_dir."""
-    XMMNewton.get_epic_spectra(
-        tar_file,
-        source_number=src_num,
-        verbose=False,
-        path=str(tmp_path),
-        instrument=[INSTRUMENTS[instrument]]
-    )
-    extract_all_files(tar_file, tmp_path)
-    reorganize_extracted_files(
-        tmp_path, obs_id, instrument=instrument,
-        cleanup=cleanup, level=level
-    )
-    inst_dir = tmp_path / level / instrument
-    # Detect HTML error content in RMF/ARF files
+    rmf_optional: bool,
+) -> None:
+    """Remove RMF/ARF files that hold an HTML error body and fail if fatal.
+
+    A bad ARF is always fatal; a bad RMF is tolerable when ``rmf_optional``.
+    """
     bad_files = [
         p for pat in ['*.rmf', f'*{instrument}*ARF*.FTZ']
         for p in inst_dir.glob(pat)
         if file_contains_html_error(p)
     ]
-    if bad_files:
-        for p in bad_files:
-            p.unlink(missing_ok=True)
+    if not bad_files:
+        return
+    for p in bad_files:
+        p.unlink(missing_ok=True)
+    arf_bad = any('ARF' in p.name.upper() for p in bad_files)
+    if arf_bad or not rmf_optional:
         raise RuntimeError(
             "RMF or ARF file(s) contained HTML error response "
             "(e.g. 404); removed. Retry download later."
         )
+
+
+def _validate_staged_inst_dir(
+    inst_dir: Path,
+    instrument: InstrumentType,
+    rmf_optional: bool,
+    ra: Optional[float],
+    dec: Optional[float],
+    pos_tol_arcsec: Optional[float],
+    obs_id: str,
+    src_num: int,
+) -> None:
+    """Check the staged dir has the required files and the right source."""
     pre_check = validate_downloaded_files(
-        inst_dir, instrument=instrument
+        inst_dir, instrument=instrument, rmf_optional=rmf_optional
     ) if inst_dir.exists() else {}
     if pre_check and not all(pre_check.values()):
         missing = [k for k, v in pre_check.items() if not v]
@@ -549,6 +551,69 @@ def _extract_and_stage(
             f"Missing required {instrument} files in {inst_dir}: "
             f"{', '.join(missing)}"
         )
+    if pos_tol_arcsec is None or ra is None or dec is None:
+        return
+    separation = validate_source_position(
+        inst_dir, instrument, ra, dec, tolerance_arcsec=pos_tol_arcsec
+    )
+    console.print(
+        f"  [green]✓[/green] {obs_id}/{src_num} [{instrument}]: "
+        f"position OK ({separation:.1f}\" from catalog)"
+    )
+
+
+def _extract_and_stage(
+    tar_file: Path,
+    tmp_path: Path,
+    obs_id: str,
+    src_num: int,
+    instrument: InstrumentType,
+    cleanup: bool,
+    level: str,
+    rmf_optional: bool = False,
+    ra: Optional[float] = None,
+    dec: Optional[float] = None,
+    pos_tol_arcsec: Optional[float] = None,
+) -> Path:
+    """Extract tar, reorganize files, validate. Returns staged inst_dir.
+
+    ``get_epic_spectra`` is the only step that fetches the RMF (a canned
+    response not present in the tar). When ``rmf_optional`` is True and that
+    fetch fails (e.g. the response host is down), the failure is logged and
+    extraction continues so the spectra/background/ARF from the tar are kept.
+
+    When ``pos_tol_arcsec`` is set and catalog ``ra``/``dec`` are available,
+    the staged spectrum's header position is checked against the catalog so a
+    stale ``src_num`` pointing at the wrong source (after XSA reprocessing) is
+    rejected rather than silently kept.
+    """
+    try:
+        XMMNewton.get_epic_spectra(
+            tar_file,
+            source_number=src_num,
+            verbose=False,
+            path=str(tmp_path),
+            instrument=[INSTRUMENTS[instrument]]
+        )
+    except Exception as e:
+        if not rmf_optional:
+            raise
+        console.print(
+            f"  [yellow]⚠[/yellow] {obs_id}/{src_num} [{instrument}]: "
+            f"RMF fetch failed ({e}); keeping spectra/ARF without RMF"
+        )
+    extract_all_files(tar_file, tmp_path)
+    reorganize_extracted_files(
+        tmp_path, obs_id, instrument=instrument,
+        cleanup=cleanup, level=level
+    )
+    inst_dir = tmp_path / level / instrument
+    _reject_html_error_files(inst_dir, instrument, rmf_optional)
+    _validate_staged_inst_dir(
+        inst_dir, instrument, rmf_optional,
+        ra=ra, dec=dec, pos_tol_arcsec=pos_tol_arcsec,
+        obs_id=obs_id, src_num=src_num,
+    )
     return inst_dir
 
 
@@ -574,20 +639,30 @@ def _build_status(
     validation: Dict[str, bool],
     instrument: InstrumentType,
     obs_id: str,
-    src_num: int
+    src_num: int,
+    rmf_missing: bool = False
 ) -> str:
     """Return a status string and print progress for a completed download."""
     if all(validation.values()):
+        note = " [no rmf]" if rmf_missing else ""
         console.print(
-            f"  [green]✓[/green] {obs_id}/{src_num} [{instrument}]"
+            f"  [green]✓[/green] {obs_id}/{src_num} [{instrument}]{note}"
         )
-        return f"SUCCESS ({instrument})"
+        return f"SUCCESS ({instrument}){note}"
     missing = [k for k, v in validation.items() if not v]
     console.print(
         f"  [yellow]⚠[/yellow] Incomplete: {obs_id}/{src_num} [{instrument}]"
         f" — missing {', '.join(missing)}"
     )
     return f"INCOMPLETE ({instrument}): Missing {', '.join(missing)}"
+
+
+def _parse_coord(value) -> Optional[float]:
+    """Parse a coordinate value to float, returning None if not numeric."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _download_pps_observation(
@@ -600,6 +675,8 @@ def _download_pps_observation(
     instruments: List[InstrumentType],
     cleanup: bool,
     level: str,
+    rmf_optional: bool = False,
+    pos_tol_arcsec: Optional[float] = None,
     _progress=None,
     _task_id=None,
 ) -> List[str]:
@@ -607,6 +684,9 @@ def _download_pps_observation(
 
     Returns a list of status strings, one per instrument.
     """
+    ra = _parse_coord(obs_data.get('ra')) if obs_data else None
+    dec = _parse_coord(obs_data.get('dec')) if obs_data else None
+
     def _desc(phase: str) -> None:
         if _progress is not None and _task_id is not None:
             _progress.update(
@@ -643,15 +723,20 @@ def _download_pps_observation(
             with TemporaryDirectory() as tmpdir:
                 inst_dir = _extract_and_stage(
                     tar_file, Path(tmpdir), obs_id, src_num,
-                    instrument, cleanup, level
+                    instrument, cleanup, level, rmf_optional,
+                    ra=ra, dec=dec, pos_tol_arcsec=pos_tol_arcsec,
                 )
                 _move_staged_files(inst_dir, output_dir, level, instrument)
             tar_file.unlink(missing_ok=True)
             time.sleep(DOWNLOAD_THROTTLE_SECONDS)
+            final_dir = output_dir / level / instrument
             validation = validate_downloaded_files(
-                output_dir / level / instrument, instrument=instrument
+                final_dir, instrument=instrument, rmf_optional=rmf_optional
             )
-            status = _build_status(validation, instrument, obs_id, src_num)
+            rmf_missing = rmf_optional and not any(final_dir.glob('*.rmf'))
+            status = _build_status(
+                validation, instrument, obs_id, src_num, rmf_missing
+            )
             _log_and_update(
                 srcid, obs_id, str(src_num), download_path,
                 status, obs_data, level
@@ -726,6 +811,8 @@ def download_observation(
     instruments: Optional[List[InstrumentType]] = None,
     cleanup: bool = True,
     level: str = LEVEL,
+    rmf_optional: bool = False,
+    pos_tol_arcsec: Optional[float] = None,
     _progress=None,
     _task_id=None,
 ) -> List[str]:
@@ -744,7 +831,8 @@ def download_observation(
             return _download_pps_observation(
                 srcid, obs_id, src_num, download_path, output_dir,
                 obs_data, instruments or [DEFAULT_INSTRUMENT],
-                cleanup, level, _progress, _task_id,
+                cleanup, level, rmf_optional, pos_tol_arcsec,
+                _progress, _task_id,
             )
         return [_download_odf_observation(
             srcid, obs_id, download_path, output_dir, obs_data, level,
@@ -789,7 +877,9 @@ def process_downloads(
     download_path: str,
     instruments: Optional[List[InstrumentType]],
     cleanup: bool = True,
-    level: str = LEVEL
+    level: str = LEVEL,
+    rmf_optional: bool = False,
+    pos_tol_arcsec: Optional[float] = None,
 ) -> List[str]:
     """Process all downloads from the observation table.
 
@@ -817,6 +907,8 @@ def process_downloads(
                 instruments=instruments,
                 cleanup=cleanup,
                 level=level,
+                rmf_optional=rmf_optional,
+                pos_tol_arcsec=pos_tol_arcsec,
                 _progress=progress,
                 _task_id=task,
             )
@@ -827,12 +919,14 @@ def process_downloads(
     return all_statuses
 
 
-def find_incomplete_downloads(base_path: Path) -> List[str]:
+def find_incomplete_downloads(
+    base_path: Path, rmf_optional: bool = False
+) -> List[str]:
     """Find and return list of incomplete downloads with relative paths."""
     incomplete = []
     for pps_dir in base_path.glob(f"**/{LEVEL}/{DEFAULT_INSTRUMENT}/"):
         validation = validate_downloaded_files(
-            pps_dir, instrument=DEFAULT_INSTRUMENT
+            pps_dir, instrument=DEFAULT_INSTRUMENT, rmf_optional=rmf_optional
         )
         if not all(validation.values()):
             missing = [k for k, v in validation.items() if not v]
@@ -880,11 +974,12 @@ def log_validation_results(
 
 def validate_all_downloads(
     download_path: str,
-    session_statuses: Optional[List[str]] = None
+    session_statuses: Optional[List[str]] = None,
+    rmf_optional: bool = False
 ) -> None:
     """Double check all downloaded files after session completion."""
     base_path = Path(download_path)
-    incomplete = find_incomplete_downloads(base_path)
+    incomplete = find_incomplete_downloads(base_path, rmf_optional=rmf_optional)
     log_validation_results(
         base_path / "download_meta.log", incomplete, session_statuses
     )
@@ -895,11 +990,18 @@ def download_spectra(
     download_path: str = "data/downloaded_spectra",
     instruments: Optional[List[InstrumentType]] = None,
     cleanup: bool = True,
-    level: str = LEVEL
+    level: str = LEVEL,
+    rmf_optional: bool = False,
+    pos_tol_arcsec: Optional[float] = 30.0,
 ) -> None:
     """Download spectral data for multiple XMM-Newton observations.
 
     Creates the download_path if it does not exist.
+
+    ``pos_tol_arcsec`` enables a position guard (PPS only): each extracted
+    spectrum is checked against the catalog ra/dec and rejected if it sits
+    farther than the tolerance, catching stale-``src_num`` wrong-source
+    downloads. Pass ``None`` to disable.
     """
     Path(download_path).mkdir(parents=True, exist_ok=True)
     validate_observation_table(obs_table)
@@ -918,6 +1020,14 @@ def download_spectra(
         )
         if instruments:
             f.write(f"   Instruments: {', '.join(instruments)}")
+        if rmf_optional:
+            f.write("   RMF: optional")
+        if level == LEVEL_PPS:
+            f.write(
+                f"   Position check: {pos_tol_arcsec:.0f}\""
+                if pos_tol_arcsec is not None
+                else "   Position check: off"
+            )
         f.write(f"\n{sep}\n\n")
     seen_sources = set()
     for obs in obs_table:
@@ -928,9 +1038,13 @@ def download_spectra(
     try:
         all_statuses = process_downloads(
             obs_table, download_path, instruments=instruments,
-            cleanup=cleanup, level=level
+            cleanup=cleanup, level=level, rmf_optional=rmf_optional,
+            pos_tol_arcsec=pos_tol_arcsec,
         )
-        validate_all_downloads(download_path, session_statuses=all_statuses)
+        validate_all_downloads(
+            download_path, session_statuses=all_statuses,
+            rmf_optional=rmf_optional
+        )
     except Exception as e:
         console.print(f"[red]Download failed:[/red] {e}")
         raise
@@ -968,6 +1082,26 @@ def main():
         default=LEVEL_PPS,
         help="Data level to download (PPS or ODF; default: PPS)"
     )
+    parser.add_argument(
+        '--rmf-optional',
+        action='store_true',
+        help="Treat the RMF as non-fatal: keep spectra/ARF even when the "
+             "response host fails to deliver the RMF (PPS only)."
+    )
+    parser.add_argument(
+        '--position-tolerance',
+        type=float,
+        default=30.0,
+        help="Max arcsec between the extracted spectrum and the catalog "
+             "position before a download is rejected as the wrong source "
+             "(PPS only; default: 30)."
+    )
+    parser.add_argument(
+        '--no-position-check',
+        action='store_true',
+        help="Disable the source-position guard (PPS only). Not recommended: "
+             "it is what catches stale-src_num wrong-source downloads."
+    )
     args = parser.parse_args()
     try:
         obs_table = load_source_list(args.csv_path)
@@ -985,7 +1119,8 @@ def main():
             download_path=args.download_path,
             instruments=instruments,
             cleanup=not args.keep_source,
-            level=args.level
+            level=args.level,
+            rmf_optional=args.rmf_optional
         )
     except Exception as e:
         console.print(f"[red]Download failed:[/red] {e}")

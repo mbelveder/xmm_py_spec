@@ -6,13 +6,27 @@ Optimized for the multiple spectra downloading.
 
 ## Input data (CSV file)
 
-Could be retrieved from a catalog, e. g. [4XMM-DR14](http://xmmssc.irap.omp.eu/Catalogue/4XMM-DR14/4XMM_DR14.html).
+Source identifiers should be retrieved from a catalog, e. g. [5XMM](http://xmmssc.irap.omp.eu/) (the current release).
 
 | srcid | src_num | obs_id | user_srcid (optional) |
 |-------|---------|--------|---------------------|
 | 201237001010017 | 36 | 147510901 | 1234 |
 | 201237001010017 | 39 | 147511701 | 1234 |
 | 201237001015028 | 9  | 147511301 | 1430 |
+
+> [!IMPORTANT]
+> **Always take `src_num` from the up-to-date XMM catalog (5XMM at the moment).**
+> The PPS download selects a source purely by its per-observation number
+> (`sourceno = src_num`). The ESA archive periodically reprocesses observations
+> and **renumbers the detections**, so a `src_num` from an older catalogue
+> (e.g. 4XMM) can silently resolve to a *different* source on the field — the
+> spectra download "successfully" but belong to the wrong object. Using the
+> catalogue release that matches the current archive avoids this.
+>
+> Include `ra` and `dec` columns (the catalogue source position, in degrees) so
+> the downloader can verify each extracted spectrum against the expected
+> position and reject wrong-source matches instead of keeping them silently
+> (see [Logging and Validation](#logging-and-validation)).
 
 ## Result file structure
 
@@ -88,6 +102,8 @@ python -m xmm_py_spec.download_spectra data/sources.csv --keep-source
 | --instruments | PN | Instruments to download: PN, M1, M2 (PPS only) |
 | --level | PPS | Data level: PPS or ODF |
 | --keep-source | False | Keep original Astroquery files for debugging |
+| --position-tolerance | 30 | Max arcsec between the extracted spectrum and the catalog `ra`/`dec` before a download is rejected as the wrong source (PPS only) |
+| --no-position-check | False | Disable the source-position guard (not recommended) |
 
 ## Logging and Validation
 
@@ -96,6 +112,7 @@ The package provides comprehensive logging and validation:
 - **Meta Logging**: Global session log in both human-readable (.log) and CSV formats
 - **Per-source Logging**: Individual download logs for each source
 - **File Validation**: Automatic validation of required spectral files (including HTML-error detection for RMF/ARF files returned as 404 pages)
+- **Source-position Guard**: When the input CSV provides `ra`/`dec`, each extracted spectrum's header position is checked against the catalog position and rejected if it exceeds `--position-tolerance` (default 30″). This catches the silent wrong-source case where a stale `src_num` resolves to a different detection after archive reprocessing
 - **Session Summary**: Final validation report at the end of each download session
 
 > **Note**: The warning `More than one file found with the instrument: PN` from Astroquery is informational — it occurs when an observation has multiple exposures for the same instrument. All exposures are processed normally.

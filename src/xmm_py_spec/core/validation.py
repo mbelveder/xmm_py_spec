@@ -79,13 +79,17 @@ def file_contains_html_error(path: Path, max_bytes: int = 2048) -> bool:
 
 def validate_downloaded_files(
     dir_path: Path,
-    instrument: InstrumentType
+    instrument: InstrumentType,
+    rmf_optional: bool = False
 ) -> Dict[str, bool]:
     """Validate presence of required spectral files.
 
     Args:
         dir_path: Directory containing spectral files
         instrument: Instrument type to validate
+        rmf_optional: If True, the RMF is not treated as a required file and is
+            excluded from the result. Use when the canned-response host is
+            unavailable so spectra/ARF still validate without the RMF.
 
     Returns:
         Dict mapping file types to validation status
@@ -102,6 +106,8 @@ def validate_downloaded_files(
         'arf': f'*{instrument}*ARF*.FTZ',
         'rmf': '*.rmf'
     }
+    if rmf_optional:
+        required_patterns.pop('rmf')
 
     result = {}
     for file_type, pattern in required_patterns.items():
@@ -117,6 +123,80 @@ def validate_downloaded_files(
         else:
             result[file_type] = True
     return result
+
+
+def validate_source_position(
+    dir_path: Path,
+    instrument: InstrumentType,
+    ra: float,
+    dec: float,
+    tolerance_arcsec: float = 30.0,
+) -> float:
+    """Verify the extracted spectrum sits at the expected catalog position.
+
+    Guards against the silent wrong-source failure caused by XSA reprocessing:
+    nxsa selects a product purely by ``sourceno`` (our ``src_num``), but a
+    reprocessing pass renumbers per-observation detections, so a stale
+    ``src_num`` can resolve to a *different* physical source and be downloaded
+    without any error. This compares the spectrum's ``SRC_RA``/``SRC_DEC``
+    header against the catalog ``ra``/``dec`` and rejects mismatches.
+
+    Args:
+        dir_path: Directory containing the staged spectral files.
+        instrument: Instrument type whose spectrum to check.
+        ra: Catalog right ascension of the target source, in degrees.
+        dec: Catalog declination of the target source, in degrees.
+        tolerance_arcsec: Maximum allowed separation. Genuine extractions sit
+            within a few arcsec; wrong-source ones are hundreds of arcsec off,
+            so the default cleanly separates the two.
+
+    Returns:
+        The angular separation between extracted and catalog position, in
+        arcsec.
+
+    Raises:
+        SpectrumValidationError: If the spectrum is missing, lacks position
+            keywords, or sits farther than ``tolerance_arcsec`` from the
+            catalog position.
+    """
+    from astropy.io import fits
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+
+    spec_files = list(dir_path.glob(f'*{instrument}*SRSPEC*.FTZ'))
+    if not spec_files:
+        raise SpectrumValidationError(
+            f"No {instrument} spectrum found in {dir_path} for position check"
+        )
+    spec_file = spec_files[0]
+
+    src_ra = src_dec = None
+    with fits.open(spec_file) as hdul:
+        for hdu in hdul:
+            header = hdu.header
+            if 'SRC_RA' in header and 'SRC_DEC' in header:
+                src_ra = float(header['SRC_RA'])
+                src_dec = float(header['SRC_DEC'])
+                break
+    if src_ra is None or src_dec is None:
+        raise SpectrumValidationError(
+            f"{spec_file.name} has no SRC_RA/SRC_DEC keywords; "
+            f"cannot verify the extracted source position"
+        )
+
+    separation = (
+        SkyCoord(src_ra, src_dec, unit=u.deg)
+        .separation(SkyCoord(ra, dec, unit=u.deg))
+        .arcsec
+    )
+    if separation > tolerance_arcsec:
+        raise SpectrumValidationError(
+            f"Extracted {instrument} source is {separation:.1f}\" from the "
+            f"catalog position (> {tolerance_arcsec:.0f}\" tolerance). The "
+            f"src_num likely points at the wrong source after XSA "
+            f"reprocessing renumbered detections."
+        )
+    return separation
 
 
 def validate_observation_table(obs_table: List[Dict]) -> None:
