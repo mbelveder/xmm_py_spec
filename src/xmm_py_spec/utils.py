@@ -34,20 +34,34 @@ def load_source_list(filepath: Union[str, Path]) -> List[Dict[str, str]]:
     required_cols = {'obs_id', 'src_num', 'srcid'}
     optional_cols = {'user_srcid'}
 
+    # skipinitialspace strips whitespace after the delimiter, so CSVs written
+    # with ", " separators don't leak leading spaces into values such as
+    # obs_id (e.g. " 0022740101"), which would otherwise be sent verbatim to
+    # the archive and rejected. Header names are stripped explicitly.
     with open(filepath, 'r') as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, skipinitialspace=True)
 
-        if not required_cols.issubset(reader.fieldnames):
-            missing_required = required_cols - set(reader.fieldnames)
+        fieldnames = [
+            name.strip() for name in (reader.fieldnames or [])
+        ]
+        if not required_cols.issubset(fieldnames):
+            missing_required = required_cols - set(fieldnames)
             raise ValueError(f"Missing required columns: {missing_required}")
-        if not optional_cols.issubset(reader.fieldnames):
-            missing_optional = optional_cols - set(reader.fieldnames)
+        if not optional_cols.issubset(fieldnames):
+            missing_optional = optional_cols - set(fieldnames)
             warnings.warn(
                 f"Missing optional columns: {missing_optional}, continue...",
                 UserWarning
             )
 
-        return list(reader)
+        return [
+            {
+                (k.strip() if k else k):
+                    (v.strip() if isinstance(v, str) else v)
+                for k, v in row.items()
+            }
+            for row in reader
+        ]
 
 
 def get_instrument_filenames(
